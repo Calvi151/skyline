@@ -1,0 +1,204 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --page: 234 241 248;
+  --panel: 250 252 255;
+  --raised: 250 252 255;
+  --ink: 11 37 69;
+  --subtle: 84 103 127;
+  --line: 203 216 230;
+  --tint: 220 232 248;
+  --chrome: 11 37 69;
+  --on-chrome: 250 252 255;
+  --brand: 29 91 214;
+  --brand-hover: 22 71 168;
+  --brand-fg: 29 91 214;
+  --brand-panel: 29 91 214;
+  --signal: 232 83 47;
+  --on-signal: 255 255 255;
+  --success: 47 125 87;
+  --danger: 176 30 60;
+  --sky-end: 220 232 248;
+}
+
+.dark {
+  --page: 10 22 38;
+  --panel: 17 32 56;
+  --raised: 23 43 77;
+  --ink: 232 240 250;
+  --subtle: 143 163 189;
+  --line: 36 58 92;
+  --tint: 26 48 90;
+  --chrome: 6 14 26;
+  --on-chrome: 232 240 250;
+  --brand: 29 91 214;
+  --brand-hover: 52 105 224;
+  --brand-fg: 123 169 255;
+  --brand-panel: 6 14 26;
+  --signal: 255 106 69;
+  --on-signal: 10 22 38;
+  --success: 76 195 138;
+  --danger: 255 107 133;
+  --sky-end: 18 41 77;
+}
+
+body {
+  @apply bg-page text-ink font-sans;
+}
+
+/* ─── Utility: Tabular Numerals ─── */
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ─── Animations: Motion System ─── */
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes floatSlow {
+  0%, 100% {
+    transform: translateY(0px) rotate(-3deg);
+  }
+  50% {
+    transform: translateY(-8px) rotate(-3deg);
+  }
+}
+
+@keyframes radarWave {
+  0% {
+    r: 6px;
+    opacity: 0.8;
+  }
+  100% {
+    r: 20px;
+    opacity: 0;
+  }
+}
+
+@keyframes flightDash {
+  to {
+    stroke-dashoffset: -32;
+  }
+}
+
+@keyframes seatPop {
+  0% { transform: scale(0.9); }
+  50% { transform: scale(1.12); }
+  100% { transform: scale(0.96); }
+}
+
+@keyframes scaleIn {
+  0% { transform: scale(0); opacity: 0; }
+  100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes pulseGlow {
+  0%, 100% { opacity: 0.3; }
+  50% { opacity: 0.8; }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 200ms ease-out forwards;
+}
+
+.animate-fadeInUp {
+  animation: fadeInUp 400ms cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-float {
+  animation: floatSlow 5s ease-in-out infinite;
+}
+
+.animate-flight-dash {
+  stroke-dasharray: 6 6;
+  animation: flightDash 1.6s linear infinite;
+}
+
+.animate-seat-pop {
+  animation: seatPop 220ms cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.animate-scaleIn {
+  animation: scaleIn 180ms ease-out forwards;
+}
+
+.animate-pulse-glow {
+  animation: pulseGlow 2.5s ease-in-out infinite;
+}
+
+/* ─── Smooth Grid Accordion ─── */
+.accordion-wrapper {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 250ms cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.accordion-wrapper.open {
+  grid-template-rows: 1fr;
+}
+
+.accordion-content {
+  overflow: hidden;
+}
+
+/* ─── Respect prefers-reduced-motion ─── */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ─── Smooth scroll ─── */
+html {
+  scroll-behavior: smooth;
+}
+
+/* ─── Custom scrollbar (subtle) ─── */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--line) / 0.5);
+  border-radius: 8px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgb(var(--line) / 0.8);
+}
+
+/* ─── Material Symbols base style ─── */
+.material-symbols-outlined {
+  font-variation-settings: 'FILL' 0, 'wght' 400, 'GRAD' 0, 'opsz' 24;
+  user-select: none;
+}
