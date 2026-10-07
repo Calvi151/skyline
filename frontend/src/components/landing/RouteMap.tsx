@@ -112,21 +112,25 @@ export default function RouteMap({ highlightedRoute }: RouteMapProps) {
             strokeWidth="2"
           />
 
-          {/* Airplane Glyph along CGK-DPS with subtle bobbing */}
-          <g className="transition-transform duration-500 hover:scale-110 cursor-pointer">
-            <g transform="translate(365, 204) rotate(16)">
-              <circle
-                cx="0"
-                cy="0"
-                r="14"
-                className="fill-panel stroke-brand-fg shadow-md transition-colors"
-                strokeWidth="1.5"
-              />
-              <path
-                d="M-5 -1 L0 -7 L5 -1 L2 4 L-2 4 Z"
-                className="fill-brand-fg"
-              />
-            </g>
+          {/* Airplane Glyph smoothly flying along active CGK-DPS Flight Path */}
+          <g className="cursor-pointer">
+            <animateMotion
+              path="M 260 170 C 320 200, 390 220, 440 215"
+              dur="5.5s"
+              repeatCount="indefinite"
+              rotate="auto"
+            />
+            <circle
+              cx="0"
+              cy="0"
+              r="13"
+              className="fill-panel stroke-brand-fg shadow-md transition-colors"
+              strokeWidth="1.5"
+            />
+            <path
+              d="M 6 0 L -2 -5 L -0.5 -1.2 L -5 -1.2 L -6.5 -3 L -7.5 -2.5 L -6.5 0 L -7.5 2.5 L -6.5 3 L -5 1.2 L -0.5 1.2 L -2 5 Z"
+              className="fill-brand-fg"
+            />
           </g>
 
           {/* City Nodes */}

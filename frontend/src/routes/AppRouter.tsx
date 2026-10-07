@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
 import Landing from '../pages/customer/Landing'
 import CheckIn from '../pages/customer/CheckIn'
+import Login from '../pages/auth/Login'
 import Navbar from '../components/layout/Navbar'
 import Footer from '../components/layout/Footer'
 
@@ -52,9 +53,9 @@ export default function AppRouter() {
         <Route path="/check-in" element={<CheckIn />} />
         <Route path="/checkin" element={<CheckIn />} />
         
-        {/* Placeholder routes */}
+        {/* Routes */}
         <Route path="/search" element={<div className="p-8 pt-24 text-ink">Hasil Pencarian (segera hadir)</div>} />
-        <Route path="/login" element={<div className="p-8 pt-24 text-ink">Login (segera hadir)</div>} />
+        <Route path="/login" element={<Login />} />
         <Route path="/register" element={<div className="p-8 pt-24 text-ink">Daftar (segera hadir)</div>} />
 
         {/* Catch-all Not Found Route */}

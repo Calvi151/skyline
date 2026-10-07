@@ -118,6 +118,20 @@ body {
   50% { opacity: 0.8; }
 }
 
+@keyframes shimmer {
+  0% { transform: translateX(-150%); }
+  100% { transform: translateX(150%); }
+}
+
+@keyframes floatSmooth {
+  0%, 100% {
+    transform: translateY(0px) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(-7px) rotate(-1deg);
+  }
+}
+
 .animate-fadeIn {
   animation: fadeIn 200ms ease-out forwards;
 }
@@ -127,7 +141,7 @@ body {
 }
 
 .animate-float {
-  animation: floatSlow 5s ease-in-out infinite;
+  animation: floatSmooth 4.5s ease-in-out infinite;
 }
 
 .animate-flight-dash {
@@ -145,6 +159,10 @@ body {
 
 .animate-pulse-glow {
   animation: pulseGlow 2.5s ease-in-out infinite;
+}
+
+.animate-shimmer {
+  animation: shimmer 3s cubic-bezier(0.4, 0, 0.6, 1) infinite;
 }
 
 /* ─── Smooth Grid Accordion ─── */
