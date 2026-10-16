@@ -1,8 +1,37 @@
+import { useEffect } from 'react'
 import { Link, useLocation } from 'react-router-dom'
 import ThemeToggle from '../common/ThemeToggle'
+import { useAuthStore } from '../../store/authStore'
+import { api } from '../../lib/api'
 
 export default function Navbar() {
   const location = useLocation()
+  const { user, setUser } = useAuthStore()
+
+  useEffect(() => {
+    if (!user) {
+      api
+        .get('/auth/me')
+        .then((res) => {
+          if (res.data?.data) {
+            setUser(res.data.data)
+          }
+        })
+        .catch(() => {
+          // not logged in
+        })
+    }
+  }, [user, setUser])
+
+  const handleLogout = async () => {
+    try {
+      await api.post('/auth/logout')
+    } catch (e) {
+      // ignore
+    } finally {
+      setUser(null)
+    }
+  }
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 h-[72px] bg-panel/90 backdrop-blur-md border-b border-line">
@@ -51,19 +80,45 @@ export default function Navbar() {
         <div className="flex items-center gap-3">
           <ThemeToggle />
 
-          <Link
-            to="/login"
-            className="hidden sm:inline-flex items-center justify-center border border-ink text-ink rounded-control px-4 py-2 text-xs md:text-sm font-semibold hover:bg-tint transition-all focus:outline-none focus:ring-2 focus:ring-brand-fg"
-          >
-            Masuk
-          </Link>
+          {user ? (
+            <div className="flex items-center gap-2.5">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-control bg-tint border border-brand-fg/20 text-ink text-xs font-medium">
+                <span className="w-6 h-6 rounded-full bg-brand text-white flex items-center justify-center font-bold text-[11px] uppercase">
+                  {user.name ? user.name[0] : 'U'}
+                </span>
+                <span className="max-w-[120px] truncate font-semibold">{user.name}</span>
+                {user.role !== 'customer' && (
+                  <span className="text-[10px] uppercase font-bold px-1.5 py-0.5 rounded bg-brand/10 text-brand-fg">
+                    {user.role}
+                  </span>
+                )}
+              </div>
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="px-3 py-1.5 text-xs text-subtle hover:text-ink hover:bg-tint rounded-control transition-colors"
+                title="Keluar"
+              >
+                Keluar
+              </button>
+            </div>
+          ) : (
+            <>
+              <Link
+                to="/login"
+                className="hidden sm:inline-flex items-center justify-center border border-ink text-ink rounded-control px-4 py-2 text-xs md:text-sm font-semibold hover:bg-tint transition-all focus:outline-none focus:ring-2 focus:ring-brand-fg"
+              >
+                Masuk
+              </Link>
 
-          <Link
-            to="/register"
-            className="inline-flex items-center justify-center bg-brand hover:bg-brand-hover text-white rounded-control px-4 md:px-5 py-2 text-xs md:text-sm font-semibold shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-brand-fg"
-          >
-            Daftar
-          </Link>
+              <Link
+                to="/register"
+                className="inline-flex items-center justify-center bg-brand hover:bg-brand-hover text-white rounded-control px-4 md:px-5 py-2 text-xs md:text-sm font-semibold shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-brand-fg"
+              >
+                Daftar
+              </Link>
+            </>
+          )}
         </div>
       </div>
     </header>

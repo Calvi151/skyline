@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { GoogleLogin, CredentialResponse } from '@react-oauth/google'
 import { useAuthStore, AuthUser } from '../../store/authStore'
 import { api } from '../../lib/api'
 import ThemeToggle from '../../components/common/ThemeToggle'
@@ -107,23 +108,40 @@ export default function Login() {
     }
   }
 
-  const handleGoogleLogin = () => {
+  const handleGoogleSuccess = async (credentialResponse: CredentialResponse) => {
+    if (!credentialResponse.credential) {
+      setErrorMessage('Kredensial Google tidak ditemukan.')
+      return
+    }
+
     setIsLoading(true)
     setErrorMessage(null)
 
-    // Simulate Google SSO response or trigger OAuth
-    setTimeout(() => {
-      const mockUser: AuthUser = {
-        id: 202,
-        name: 'Pengguna Google',
-        email: email || 'user.google@gmail.com',
-        role: 'customer',
-        email_verified: true,
+    try {
+      const res = await api.post('/auth/google', {
+        credential: credentialResponse.credential,
+      })
+      const userData: AuthUser = res.data.data?.user || res.data.user
+      setUser(userData)
+
+      if (userData.role === 'admin') {
+        navigate('/admin')
+      } else if (userData.role === 'staff') {
+        navigate('/staff')
+      } else {
+        navigate(redirectUrl)
       }
-      setUser(mockUser)
+    } catch (err: any) {
+      setErrorMessage(
+        err.response?.data?.message || 'Gagal masuk dengan akun Google. Pastikan Client ID sudah terdaftar di Google Cloud.'
+      )
+    } finally {
       setIsLoading(false)
-      navigate(redirectUrl)
-    }, 600)
+    }
+  }
+
+  const handleGoogleError = () => {
+    setErrorMessage('Login Google dibatalkan atau terjadi masalah koneksi.')
   }
 
   return (
@@ -157,7 +175,7 @@ export default function Login() {
         </div>
 
         {/* Center Graphic: Archipelago Route Map + Floating Ticket (Sedang / Balanced Size) */}
-        <div className="z-10 my-auto py-2 relative w-full max-w-[460px] mx-auto">
+        <div className="z-10 my-auto py-2 mb-10 relative w-full max-w-[460px] mx-auto">
           <div className="mb-2.5 text-left">
             <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-white/10 border border-white/20 text-[10px] font-semibold tracking-wide text-sky-100">
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-300 animate-pulse" />
@@ -170,38 +188,38 @@ export default function Login() {
             </h2>
           </div>
 
-          {/* Abstract Archipelago Map (Sedang / Compact Height) */}
-          <div className="relative w-full h-[190px] xl:h-[210px] rounded-ticket bg-brand-hover/30 border border-white/15 p-3 backdrop-blur-[2px]">
+          {/* Abstract Archipelago Map (Sedang / Balanced Height) */}
+          <div className="relative w-full h-[210px] xl:h-[230px] rounded-ticket bg-brand-hover/30 border border-white/15 p-3 backdrop-blur-[2px]">
             <svg
               className="w-full h-full"
-              viewBox="0 0 600 280"
+              viewBox="0 0 600 240"
               fill="none"
               xmlns="http://www.w3.org/2000/svg"
             >
               {/* Landmass Contours Hint */}
               <path
-                d="M40 90 Q 70 70, 110 110 T 170 160"
+                d="M35 75 Q 65 55, 105 45 T 180 90"
                 stroke="#FAFCFF"
                 strokeWidth="1.2"
                 strokeOpacity="0.25"
                 strokeDasharray="2 3"
               />
               <path
-                d="M160 170 Q 210 160, 270 170 T 360 185"
+                d="M205 118 Q 275 125, 355 132 T 430 142"
                 stroke="#FAFCFF"
                 strokeWidth="1.2"
                 strokeOpacity="0.25"
                 strokeDasharray="2 3"
               />
               <path
-                d="M280 90 Q 320 80, 360 110 T 420 160"
+                d="M255 58 Q 305 48, 355 68 T 405 92"
                 stroke="#FAFCFF"
                 strokeWidth="1.2"
                 strokeOpacity="0.25"
                 strokeDasharray="2 3"
               />
               <path
-                d="M380 90 Q 420 100, 480 80 T 550 120"
+                d="M435 68 Q 465 52, 480 78 T 485 115"
                 stroke="#FAFCFF"
                 strokeWidth="1.2"
                 strokeOpacity="0.25"
@@ -211,7 +229,7 @@ export default function Login() {
               {/* Flight Routes */}
               {/* KNO - CGK */}
               <path
-                d="M70 60 Q 110 130 160 175"
+                d="M 95 48 Q 155 85 225 118"
                 stroke="#FAFCFF"
                 strokeOpacity="0.6"
                 strokeWidth="1.5"
@@ -219,36 +237,29 @@ export default function Login() {
               />
               {/* CGK - SUB */}
               <path
-                d="M160 175 Q 220 190 280 180"
+                d="M 225 118 Q 285 125 350 130"
                 stroke="#FAFCFF"
                 strokeOpacity="0.6"
                 strokeWidth="1.5"
               />
               {/* SUB - DPS */}
               <path
-                d="M280 180 Q 315 190 350 195"
+                d="M 350 130 Q 385 135 420 140"
                 stroke="#FAFCFF"
                 strokeOpacity="0.6"
                 strokeWidth="1.5"
               />
-              {/* SUB - JOG */}
+              {/* CGK - JOG */}
               <path
-                d="M280 180 Q 255 185 230 185"
+                d="M 225 118 Q 260 130 290 138"
                 stroke="#FAFCFF"
                 strokeOpacity="0.4"
                 strokeWidth="1.2"
                 strokeDasharray="3 3"
               />
-              {/* CGK - JOG */}
-              <path
-                d="M160 175 Q 195 185 230 185"
-                stroke="#FAFCFF"
-                strokeOpacity="0.4"
-                strokeWidth="1.2"
-              />
               {/* SUB - UPG */}
               <path
-                d="M280 180 Q 340 145 400 135"
+                d="M 350 130 Q 410 100 465 82"
                 stroke="#FAFCFF"
                 strokeOpacity="0.5"
                 strokeWidth="1.2"
@@ -257,13 +268,13 @@ export default function Login() {
 
               {/* Primary Active Route: CGK to DPS with animated stream */}
               <path
-                d="M160 175 Q 250 170 350 195"
+                d="M 225 118 Q 320 108 420 140"
                 stroke="#FAFCFF"
                 strokeOpacity="0.95"
                 strokeWidth="2.5"
               />
               <path
-                d="M160 175 Q 250 170 350 195"
+                d="M 225 118 Q 320 108 420 140"
                 stroke="#FAFCFF"
                 strokeOpacity="0.8"
                 strokeWidth="2"
@@ -271,10 +282,10 @@ export default function Login() {
               />
 
               {/* City Nodes */}
-              {/* KNO */}
+              {/* KNO (Medan) */}
               <circle
-                cx="70"
-                cy="60"
+                cx="95"
+                cy="48"
                 r="10"
                 stroke="#FAFCFF"
                 fill="none"
@@ -284,20 +295,19 @@ export default function Login() {
                 <animate attributeName="r" values="4;14" dur="3s" repeatCount="indefinite" />
                 <animate attributeName="opacity" values="0.6;0" dur="3s" repeatCount="indefinite" />
               </circle>
-              <circle cx="70" cy="60" r="4.5" fill="#FAFCFF" />
-              <circle cx="70" cy="60" r="8" stroke="#FAFCFF" strokeOpacity="0.4" strokeWidth="1" />
-              <text x="70" y="44" fill="#FAFCFF" fontSize="13" fontWeight="600" textAnchor="middle">
+              <circle cx="95" cy="48" r="4.5" fill="#FAFCFF" />
+              <circle cx="95" cy="48" r="8" stroke="#FAFCFF" strokeOpacity="0.4" strokeWidth="1" />
+              <text x="95" y="32" fill="#FAFCFF" fontSize="13" fontWeight="600" textAnchor="middle">
                 KNO
               </text>
-              <text x="70" y="78" fill="#FAFCFF" fillOpacity="0.75" fontSize="10" textAnchor="middle">
+              <text x="95" y="66" fill="#FAFCFF" fillOpacity="0.75" fontSize="10" textAnchor="middle">
                 Medan
               </text>
 
-              {/* CGK */}
-              {/* Radar ripple wave */}
+              {/* CGK (Jakarta) */}
               <circle
-                cx="160"
-                cy="175"
+                cx="225"
+                cy="118"
                 r="14"
                 stroke="#FAFCFF"
                 fill="none"
@@ -307,24 +317,24 @@ export default function Login() {
                 <animate attributeName="r" values="6;22" dur="2.4s" repeatCount="indefinite" />
                 <animate attributeName="opacity" values="0.85;0" dur="2.4s" repeatCount="indefinite" />
               </circle>
-              <circle cx="160" cy="175" r="5.5" fill="#FAFCFF" />
-              <text x="142" y="165" fill="#FAFCFF" fontSize="14" fontWeight="700">
+              <circle cx="225" cy="118" r="5.5" fill="#FAFCFF" />
+              <text x="210" y="105" fill="#FAFCFF" fontSize="14" fontWeight="700">
                 CGK
               </text>
-              <text x="142" y="196" fill="#FAFCFF" fillOpacity="0.8" fontSize="10">
+              <text x="210" y="136" fill="#FAFCFF" fillOpacity="0.8" fontSize="10">
                 Jakarta
               </text>
 
               {/* JOG */}
-              <circle cx="230" cy="185" r="4" fill="#FAFCFF" />
-              <text x="230" y="206" fill="#FAFCFF" fontSize="12" fontWeight="600" textAnchor="middle">
+              <circle cx="290" cy="138" r="4" fill="#FAFCFF" />
+              <text x="290" y="156" fill="#FAFCFF" fontSize="12" fontWeight="600" textAnchor="middle">
                 JOG
               </text>
 
-              {/* SUB */}
+              {/* SUB (Surabaya) */}
               <circle
-                cx="280"
-                cy="180"
+                cx="350"
+                cy="130"
                 r="10"
                 stroke="#FAFCFF"
                 fill="none"
@@ -334,19 +344,18 @@ export default function Login() {
                 <animate attributeName="r" values="4;15" dur="2.8s" begin="0.8s" repeatCount="indefinite" />
                 <animate attributeName="opacity" values="0.7;0" dur="2.8s" begin="0.8s" repeatCount="indefinite" />
               </circle>
-              <circle cx="280" cy="180" r="4.5" fill="#FAFCFF" />
-              <text x="280" y="166" fill="#FAFCFF" fontSize="13" fontWeight="600" textAnchor="middle">
+              <circle cx="350" cy="130" r="4.5" fill="#FAFCFF" />
+              <text x="350" y="115" fill="#FAFCFF" fontSize="13" fontWeight="600" textAnchor="middle">
                 SUB
               </text>
-              <text x="280" y="202" fill="#FAFCFF" fillOpacity="0.75" fontSize="10" textAnchor="middle">
+              <text x="350" y="150" fill="#FAFCFF" fillOpacity="0.75" fontSize="10" textAnchor="middle">
                 Surabaya
               </text>
 
-              {/* DPS */}
-              {/* Radar ripple wave */}
+              {/* DPS (Denpasar) */}
               <circle
-                cx="350"
-                cy="195"
+                cx="420"
+                cy="140"
                 r="14"
                 stroke="#FAFCFF"
                 fill="none"
@@ -356,27 +365,27 @@ export default function Login() {
                 <animate attributeName="r" values="6;22" dur="2.4s" begin="1.2s" repeatCount="indefinite" />
                 <animate attributeName="opacity" values="0.85;0" dur="2.4s" begin="1.2s" repeatCount="indefinite" />
               </circle>
-              <circle cx="350" cy="195" r="5.5" fill="#FAFCFF" />
-              <text x="366" y="192" fill="#FAFCFF" fontSize="14" fontWeight="700">
+              <circle cx="420" cy="140" r="5.5" fill="#FAFCFF" />
+              <text x="435" y="136" fill="#FAFCFF" fontSize="14" fontWeight="700">
                 DPS
               </text>
-              <text x="366" y="208" fill="#FAFCFF" fillOpacity="0.8" fontSize="10">
+              <text x="435" y="152" fill="#FAFCFF" fillOpacity="0.8" fontSize="10">
                 Denpasar
               </text>
 
-              {/* UPG */}
-              <circle cx="400" cy="135" r="4.5" fill="#FAFCFF" />
-              <text x="400" y="122" fill="#FAFCFF" fontSize="13" fontWeight="600" textAnchor="middle">
+              {/* UPG (Makassar) */}
+              <circle cx="465" cy="82" r="4.5" fill="#FAFCFF" />
+              <text x="465" y="68" fill="#FAFCFF" fontSize="13" fontWeight="600" textAnchor="middle">
                 UPG
               </text>
-              <text x="400" y="154" fill="#FAFCFF" fillOpacity="0.75" fontSize="10" textAnchor="middle">
+              <text x="465" y="100" fill="#FAFCFF" fillOpacity="0.75" fontSize="10" textAnchor="middle">
                 Makassar
               </text>
 
               {/* Animated Airplane Flying Along Flight Route Path */}
               <g className="cursor-pointer">
                 <animateMotion
-                  path="M 160 175 Q 250 170 350 195"
+                  path="M 225 118 Q 320 108 420 140"
                   dur="5.5s"
                   repeatCount="indefinite"
                   rotate="auto"
@@ -390,7 +399,7 @@ export default function Login() {
             </svg>
 
             {/* Floating Mini Boarding Pass Card with animate-float, pulse dot, and shimmer beam */}
-            <div className="absolute -bottom-4 left-3 w-[230px] bg-panel text-ink rounded-ticket shadow-xl p-2.5 border border-line animate-float hover:!transform-none hover:scale-105 hover:shadow-2xl transition-all duration-300 select-none overflow-hidden relative">
+            <div className="absolute -bottom-8 -left-3 sm:-left-5 xl:-left-6 z-20 w-[220px] bg-panel text-ink rounded-ticket shadow-2xl p-2.5 border border-line animate-float hover:!transform-none hover:scale-105 hover:shadow-2xl transition-all duration-300 select-none overflow-hidden">
               {/* Shimmer light beam pass */}
               <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-ticket">
                 <div className="w-1/2 h-full bg-gradient-to-r from-transparent via-white/20 dark:via-white/10 to-transparent skew-x-[-20deg] animate-shimmer" />
@@ -450,7 +459,7 @@ export default function Login() {
         </div>
 
         {/* Bottom Feature Rows with Interactive Micro-Animations */}
-        <div className="z-10 border-t border-white/20 pt-3">
+        <div className="z-10 border-t border-white/20 pt-3.5">
           <div className="space-y-1.5">
             <div className="flex items-center gap-2.5 text-white/90 text-xs xl:text-sm group p-1 -mx-1 rounded-control hover:bg-white/10 transition-all duration-200 cursor-default">
               <div className="w-6 h-6 rounded-control bg-white/10 group-hover:bg-white/20 group-hover:scale-110 flex items-center justify-center shrink-0 transition-all duration-200">
@@ -545,33 +554,18 @@ export default function Login() {
               </p>
             </div>
 
-            {/* Google One-Click Button */}
-            <button
-              type="button"
-              onClick={handleGoogleLogin}
-              className="w-full h-12 rounded-control border border-line bg-panel hover:bg-page hover:border-brand-fg/40 hover:shadow-md hover:-translate-y-0.5 active:translate-y-0 text-ink font-semibold text-sm flex items-center justify-center gap-3 transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-brand-fg active:scale-[0.98] group"
-            >
-              {/* Official Google Icon SVG */}
-              <svg width="18" height="18" viewBox="0 0 24 24" className="group-hover:scale-110 transition-transform duration-200">
-                <path
-                  fill="#4285F4"
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                />
-                <path
-                  fill="#34A853"
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                />
-                <path
-                  fill="#FBBC05"
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                />
-                <path
-                  fill="#EA4335"
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                />
-              </svg>
-              <span>Lanjutkan dengan Google</span>
-            </button>
+            {/* Google Official Button */}
+            <div className="w-full flex justify-center [&>div]:w-full [&>div>div]:w-full">
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
+                theme="outline"
+                size="large"
+                text="continue_with"
+                width="100%"
+                shape="rectangular"
+              />
+            </div>
 
             {/* Role Note */}
             <p className="text-[11px] text-subtle text-center mt-2.5">
