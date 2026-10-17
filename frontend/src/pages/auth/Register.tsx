@@ -1,16 +1,18 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { GoogleLogin, CredentialResponse } from '@react-oauth/google'
 import ThemeToggle from '../../components/common/ThemeToggle'
 import { useAuthStore, type AuthUser } from '../../store/authStore'
 import { api } from '../../lib/api'
 
 export default function Register() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const setUser = useAuthStore((state) => state.setUser)
 
   // Form State
   const [fullName, setFullName] = useState('')
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(searchParams.get('email') || '')
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
@@ -88,43 +90,58 @@ export default function Register() {
       })
 
       if (response.data && !response.data.error) {
-        navigate(`/check-email?email=${encodeURIComponent(email.trim().toLowerCase())}`)
+        // Alur urutan: Setelah register -> arahkan ke Login dengan query param email & registered
+        navigate(`/login?registered=1&email=${encodeURIComponent(email.trim().toLowerCase())}`)
       } else {
         setErrorMessage(response.data.message || 'Registrasi gagal. Silakan coba lagi.')
       }
     } catch (err: any) {
-      console.warn('Backend API registration error, falling back to simulated flow:', err)
       const serverMsg = err.response?.data?.message
       if (err.response?.status === 409 || serverMsg?.toLowerCase().includes('terdaftar')) {
-        setErrorMessage('Email ini sudah terdaftar. Masuk atau gunakan email lain.')
+        setErrorMessage('Email ini sudah terdaftar. Silakan masuk atau gunakan email lain.')
       } else if (serverMsg) {
         setErrorMessage(serverMsg)
       } else {
-        setTimeout(() => {
-          navigate(`/check-email?email=${encodeURIComponent(email.trim().toLowerCase())}`)
-        }, 500)
+        setErrorMessage('Terjadi kendala pada server. Pastikan backend aktif dan coba lagi.')
       }
     } finally {
       setIsLoading(false)
     }
   }
 
-  const handleGoogleSignup = () => {
+  const handleGoogleSuccess = async (credentialResponse: CredentialResponse) => {
+    if (!credentialResponse.credential) {
+      setErrorMessage('Kredensial Google tidak ditemukan.')
+      return
+    }
+
     setIsLoading(true)
     setErrorMessage(null)
 
-    setTimeout(() => {
-      const mockUser: AuthUser = {
-        id: 203,
-        name: 'Pengguna Google Baru',
-        email: email || 'user.baru@gmail.com',
-        role: 'customer',
-        email_verified: true,
+    try {
+      const res = await api.post('/auth/google', {
+        credential: credentialResponse.credential,
+        mode: 'register',
+      })
+      const userData: AuthUser = res.data.data?.user || res.data.user
+      setUser(userData)
+      navigate('/dashboard')
+    } catch (err: any) {
+      const serverMsg = err.response?.data?.message
+      if (err.response?.status === 409 || serverMsg?.toLowerCase().includes('terdaftar')) {
+        setErrorMessage('Akun dengan email Google ini sudah terdaftar. Silakan masuk melalui halaman login.')
+      } else {
+        setErrorMessage(
+          serverMsg || 'Gagal mendaftar dengan akun Google.'
+        )
       }
-      setUser(mockUser)
+    } finally {
       setIsLoading(false)
-      navigate('/')
-    }, 600)
+    }
+  }
+
+  const handleGoogleError = () => {
+    setErrorMessage('Pendaftaran Google dibatalkan atau terjadi masalah koneksi.')
   }
 
   return (
@@ -175,8 +192,8 @@ export default function Register() {
 
           {/* Graphic Container with Peeking Secondary Ticket & Seat Map Card */}
           <div className="relative pt-4 pb-2">
-            {/* Peeking Background Ticket (Decorative Stacking Layer) */}
-            <div className="absolute -bottom-2 right-1 w-64 h-36 bg-white/10 backdrop-blur-md rounded-ticket p-3.5 border border-white/20 transform rotate-6 translate-x-3 translate-y-3 pointer-events-none z-0 hidden sm:block">
+            {/* Peeking Background Ticket (Decorative Stacking Layer with Hover Interaction) */}
+            <div className="absolute -bottom-2 right-1 w-64 h-36 bg-white/10 backdrop-blur-md rounded-ticket p-3.5 border border-white/20 transform rotate-6 translate-x-3 translate-y-3 pointer-events-none z-0 hidden sm:block transition-all duration-500 hover:rotate-8 hover:translate-x-4">
               <div className="flex items-center justify-between border-b border-white/20 pb-1.5">
                 <span className="text-[9px] font-bold text-white/70 uppercase tracking-wider">
                   BOARDING TICKET
@@ -194,12 +211,20 @@ export default function Register() {
               </div>
             </div>
 
-            {/* Main Interactive Seat Map Card */}
-            <div className="relative z-10 bg-panel text-ink rounded-ticket p-4 sm:p-5 shadow-2xl border border-line transform -rotate-1 hover:rotate-0 transition-transform duration-300">
+            {/* Main Interactive Seat Map Card with Floating Animation & Shimmer */}
+            <div className="relative z-10 bg-panel text-ink rounded-ticket p-4 sm:p-5 shadow-2xl border border-line animate-float hover:!transform-none hover:scale-[1.02] transition-all duration-300 overflow-hidden select-none">
+              {/* Shimmer light sweep pass */}
+              <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-ticket">
+                <div className="w-1/2 h-full bg-gradient-to-r from-transparent via-white/20 dark:via-white/10 to-transparent skew-x-[-20deg] animate-shimmer" />
+              </div>
+
               {/* Card Header */}
-              <div className="flex items-center justify-between pb-2.5 border-b border-line">
+              <div className="flex items-center justify-between pb-2.5 border-b border-line relative z-10">
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-brand-fg" />
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-fg opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-brand-fg" />
+                  </span>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-subtle">
                     PETA KURSI KABIN (ROW 14-16)
                   </span>
@@ -230,9 +255,9 @@ export default function Register() {
                   <button
                     type="button"
                     onClick={() => toggleSeat('14A')}
-                    className={`h-8 rounded-control flex items-center justify-center text-xs font-bold transition-all shadow-sm ${
+                    className={`h-8 rounded-control flex items-center justify-center text-xs font-bold transition-all shadow-sm active:scale-90 hover:scale-105 duration-150 ${
                       selectedSeats.includes('14A')
-                        ? 'bg-signal text-white ring-2 ring-signal/30 scale-105'
+                        ? 'bg-signal text-white ring-2 ring-signal/30 scale-105 animate-seat-pop'
                         : 'bg-panel border border-line text-ink hover:border-brand-fg'
                     }`}
                     title="Kursi 14A"
@@ -248,9 +273,9 @@ export default function Register() {
                   <button
                     type="button"
                     onClick={() => toggleSeat('14B')}
-                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all ${
+                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all active:scale-90 hover:scale-105 duration-150 ${
                       selectedSeats.includes('14B')
-                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30'
+                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30 scale-105 animate-seat-pop'
                         : 'bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg hover:bg-tint'
                     }`}
                   >
@@ -263,18 +288,18 @@ export default function Register() {
 
                   {/* 14C Taken */}
                   <div
-                    className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed"
+                    className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed select-none"
                     title="14C Terisi"
                   >
                     <span className="material-symbols-outlined text-[13px] opacity-60">close</span>
                   </div>
 
                   {/* Row Indicator */}
-                  <span className="text-[10px] font-bold text-subtle">14</span>
+                  <span className="text-[10px] font-bold text-subtle select-none">14</span>
 
                   {/* 14D Taken */}
                   <div
-                    className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed"
+                    className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed select-none"
                     title="14D Terisi"
                   >
                     <span className="material-symbols-outlined text-[13px] opacity-60">close</span>
@@ -284,9 +309,9 @@ export default function Register() {
                   <button
                     type="button"
                     onClick={() => toggleSeat('14E')}
-                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all ${
+                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all active:scale-90 hover:scale-105 duration-150 ${
                       selectedSeats.includes('14E')
-                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30'
+                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30 scale-105 animate-seat-pop'
                         : 'bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg hover:bg-tint'
                     }`}
                   >
@@ -301,9 +326,9 @@ export default function Register() {
                   <button
                     type="button"
                     onClick={() => toggleSeat('14F')}
-                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all ${
+                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all active:scale-90 hover:scale-105 duration-150 ${
                       selectedSeats.includes('14F')
-                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30'
+                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30 scale-105 animate-seat-pop'
                         : 'bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg hover:bg-tint'
                     }`}
                   >
@@ -315,15 +340,15 @@ export default function Register() {
                   </button>
                 </div>
 
-                {/* Row 15 (Contains Selected 15C with Floating Tooltip) */}
+                {/* Row 15 (Contains Selected 15C with Floating Bobbing Tooltip) */}
                 <div className="grid grid-cols-7 gap-1.5 items-center text-center relative">
                   {/* 15A Available */}
                   <button
                     type="button"
                     onClick={() => toggleSeat('15A')}
-                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all ${
+                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all active:scale-90 hover:scale-105 duration-150 ${
                       selectedSeats.includes('15A')
-                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30'
+                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30 scale-105 animate-seat-pop'
                         : 'bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg hover:bg-tint'
                     }`}
                   >
@@ -336,20 +361,20 @@ export default function Register() {
 
                   {/* 15B Taken */}
                   <div
-                    className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed"
+                    className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed select-none"
                     title="15B Terisi"
                   >
                     <span className="material-symbols-outlined text-[13px] opacity-60">close</span>
                   </div>
 
-                  {/* 15C Selected with Tooltip */}
+                  {/* 15C Selected with Floating Bobbing Tooltip */}
                   <div className="relative">
                     <button
                       type="button"
                       onClick={() => toggleSeat('15C')}
-                      className={`w-full h-8 rounded-control flex items-center justify-center text-xs font-bold transition-all shadow-sm ${
+                      className={`w-full h-8 rounded-control flex items-center justify-center text-xs font-bold transition-all shadow-sm active:scale-90 hover:scale-105 duration-150 ${
                         selectedSeats.includes('15C')
-                          ? 'bg-signal text-white ring-2 ring-signal/30 scale-105'
+                          ? 'bg-signal text-white ring-2 ring-signal/30 scale-105 animate-seat-pop'
                           : 'bg-panel border border-line text-ink hover:border-brand-fg'
                       }`}
                       title="Kursi 15C"
@@ -361,9 +386,9 @@ export default function Register() {
                       )}
                     </button>
 
-                    {/* Floating Tooltip Anchor */}
+                    {/* Floating Bobbing Tooltip Anchor */}
                     {selectedSeats.includes('15C') && (
-                      <div className="absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap bg-brand-panel text-white text-[9px] font-semibold px-2 py-0.5 rounded shadow-lg pointer-events-none z-30 animate-fadeIn">
+                      <div className="absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap bg-brand-panel text-white text-[9px] font-semibold px-2 py-0.5 rounded shadow-lg pointer-events-none z-30 animate-fadeIn animate-bob">
                         Kursi 15C, lorong, gratis
                         <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-brand-panel" />
                       </div>
@@ -371,15 +396,15 @@ export default function Register() {
                   </div>
 
                   {/* Row Indicator */}
-                  <span className="text-[10px] font-bold text-subtle">15</span>
+                  <span className="text-[10px] font-bold text-subtle select-none">15</span>
 
                   {/* 15D Available */}
                   <button
                     type="button"
                     onClick={() => toggleSeat('15D')}
-                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all ${
+                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all active:scale-90 hover:scale-105 duration-150 ${
                       selectedSeats.includes('15D')
-                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30'
+                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30 scale-105 animate-seat-pop'
                         : 'bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg hover:bg-tint'
                     }`}
                   >
@@ -394,9 +419,9 @@ export default function Register() {
                   <button
                     type="button"
                     onClick={() => toggleSeat('15E')}
-                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all ${
+                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all active:scale-90 hover:scale-105 duration-150 ${
                       selectedSeats.includes('15E')
-                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30'
+                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30 scale-105 animate-seat-pop'
                         : 'bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg hover:bg-tint'
                     }`}
                   >
@@ -409,7 +434,7 @@ export default function Register() {
 
                   {/* 15F Taken */}
                   <div
-                    className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed"
+                    className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed select-none"
                     title="15F Terisi"
                   >
                     <span className="material-symbols-outlined text-[13px] opacity-60">close</span>
@@ -422,9 +447,9 @@ export default function Register() {
                   <button
                     type="button"
                     onClick={() => toggleSeat('16A')}
-                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all ${
+                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all active:scale-90 hover:scale-105 duration-150 ${
                       selectedSeats.includes('16A')
-                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30'
+                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30 scale-105 animate-seat-pop'
                         : 'bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg hover:bg-tint'
                     }`}
                   >
@@ -439,9 +464,9 @@ export default function Register() {
                   <button
                     type="button"
                     onClick={() => toggleSeat('16B')}
-                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all ${
+                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all active:scale-90 hover:scale-105 duration-150 ${
                       selectedSeats.includes('16B')
-                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30'
+                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30 scale-105 animate-seat-pop'
                         : 'bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg hover:bg-tint'
                     }`}
                   >
@@ -454,18 +479,18 @@ export default function Register() {
 
                   {/* 16C Taken */}
                   <div
-                    className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed"
+                    className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed select-none"
                     title="16C Terisi"
                   >
                     <span className="material-symbols-outlined text-[13px] opacity-60">close</span>
                   </div>
 
                   {/* Row Indicator */}
-                  <span className="text-[10px] font-bold text-subtle">16</span>
+                  <span className="text-[10px] font-bold text-subtle select-none">16</span>
 
                   {/* 16D Taken */}
                   <div
-                    className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed"
+                    className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed select-none"
                     title="16D Terisi"
                   >
                     <span className="material-symbols-outlined text-[13px] opacity-60">close</span>
@@ -475,9 +500,9 @@ export default function Register() {
                   <button
                     type="button"
                     onClick={() => toggleSeat('16E')}
-                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all ${
+                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all active:scale-90 hover:scale-105 duration-150 ${
                       selectedSeats.includes('16E')
-                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30'
+                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30 scale-105 animate-seat-pop'
                         : 'bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg hover:bg-tint'
                     }`}
                   >
@@ -492,9 +517,9 @@ export default function Register() {
                   <button
                     type="button"
                     onClick={() => toggleSeat('16F')}
-                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all ${
+                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all active:scale-90 hover:scale-105 duration-150 ${
                       selectedSeats.includes('16F')
-                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30'
+                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30 scale-105 animate-seat-pop'
                         : 'bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg hover:bg-tint'
                     }`}
                   >
@@ -563,9 +588,9 @@ export default function Register() {
           </div>
         </div>
 
-        {/* Ambient background glows */}
-        <div className="absolute -right-32 -top-32 w-96 h-96 rounded-full bg-white/5 pointer-events-none blur-3xl" />
-        <div className="absolute -left-20 -bottom-20 w-80 h-80 rounded-full bg-brand-hover/40 pointer-events-none blur-2xl" />
+        {/* Ambient background glows with pulse animation */}
+        <div className="absolute -right-32 -top-32 w-96 h-96 rounded-full bg-white/5 pointer-events-none blur-3xl animate-pulse-glow" />
+        <div className="absolute -left-20 -bottom-20 w-80 h-80 rounded-full bg-brand-hover/40 pointer-events-none blur-2xl animate-pulse-glow" />
       </div>
 
       {/* ─── RIGHT HALF: FORM PANEL (50% Width on Desktop, Shifted Right with lg:ml-[50%]) ─── */}
@@ -593,8 +618,8 @@ export default function Register() {
           </div>
         </div>
 
-        {/* Registration Card Form */}
-        <div className="w-full max-w-[460px] mx-auto my-auto py-2">
+        {/* Registration Card Form with Fade-In-Up entrance */}
+        <div className="w-full max-w-[460px] mx-auto my-auto py-2 animate-fadeInUp">
           <div className="bg-panel rounded-ticket border border-line p-6 sm:p-8 shadow-sm">
             {/* Form Header */}
             <div className="mb-6">
@@ -607,33 +632,16 @@ export default function Register() {
             </div>
 
             {/* Google Signup Button */}
-            <div className="mb-5">
-              <button
-                type="button"
-                onClick={handleGoogleSignup}
-                disabled={isLoading}
-                className="w-full h-11 rounded-control border border-line bg-panel hover:bg-page transition-colors flex items-center justify-center gap-3 text-sm font-semibold text-ink shadow-sm active:scale-[0.99] disabled:opacity-60"
-              >
-                <svg className="w-4 h-4 shrink-0" viewBox="0 0 24 24">
-                  <path
-                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                    fill="#4285F4"
-                  />
-                  <path
-                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                    fill="#34A853"
-                  />
-                  <path
-                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.06H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.94l2.85-2.22.81-.63z"
-                    fill="#FBBC05"
-                  />
-                  <path
-                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.06l3.66 2.84c.87-2.6 3.3-4.52 6.16-4.52z"
-                    fill="#EA4335"
-                  />
-                </svg>
-                <span>Daftar dengan Google</span>
-              </button>
+            <div className="mb-5 flex justify-center [&>div]:w-full [&>div>div]:w-full">
+              <GoogleLogin
+                onSuccess={handleGoogleSuccess}
+                onError={handleGoogleError}
+                theme="outline"
+                size="large"
+                text="signup_with"
+                width="100%"
+                shape="rectangular"
+              />
             </div>
 
             {/* Divider */}
@@ -864,11 +872,13 @@ export default function Register() {
                     </span>
                   </button>
 
-                  {/* Dynamic Match Badge */}
+                  {/* Dynamic Match Badge with Spring Scale-In Animation */}
                   {confirmPassword.length > 0 && (
                     <div
                       className={`absolute inset-y-0 right-0 pr-3 flex items-center gap-1 pointer-events-none text-xs font-bold transition-all ${
-                        isPasswordMatch ? 'text-success animate-fadeIn' : 'text-error animate-fadeIn'
+                        isPasswordMatch
+                          ? 'text-success animate-scaleIn'
+                          : 'text-error animate-scaleIn'
                       }`}
                     >
                       <span className="material-symbols-outlined text-[16px]">
@@ -885,11 +895,11 @@ export default function Register() {
                 Kami akan mengirim tautan verifikasi ke email kamu.
               </p>
 
-              {/* Submit Button */}
+              {/* Submit Button with Hover Lift, Shadow, and Arrow Nudge */}
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full h-11 bg-brand hover:bg-brand-hover active:bg-brand-active text-white text-sm font-semibold rounded-control transition-all shadow-sm focus:outline-none focus:ring-2 focus:ring-brand/40 flex items-center justify-center gap-2 disabled:opacity-60"
+                className="w-full h-11 bg-brand hover:bg-brand-hover active:bg-brand-active text-white text-sm font-semibold rounded-control transition-all duration-200 shadow-sm hover:shadow-lg hover:shadow-brand/25 hover:-translate-y-0.5 active:translate-y-0 focus:outline-none focus:ring-2 focus:ring-brand/40 flex items-center justify-center gap-2 disabled:opacity-60 group"
               >
                 {isLoading ? (
                   <>
@@ -899,7 +909,9 @@ export default function Register() {
                 ) : (
                   <>
                     <span>Buat akun</span>
-                    <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                    <span className="material-symbols-outlined text-[18px] group-hover:translate-x-1 transition-transform duration-200">
+                      arrow_forward
+                    </span>
                   </>
                 )}
               </button>

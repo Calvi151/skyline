@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { setCookie, deleteCookie } from 'hono/cookie'
+import { setCookie, deleteCookie, getCookie } from 'hono/cookie'
 import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { eq } from 'drizzle-orm'
@@ -148,10 +148,10 @@ authRoute.post('/login', async (c) => {
     return c.json(
       {
         error: true,
-        message: 'Email atau password salah',
-        code: 'INVALID_CREDENTIALS',
+        message: 'Akun dengan email ini belum terdaftar. Silakan daftar terlebih dahulu.',
+        code: 'USER_NOT_FOUND',
       },
-      401,
+      404,
     )
   }
 
@@ -160,7 +160,7 @@ authRoute.post('/login', async (c) => {
     return c.json(
       {
         error: true,
-        message: 'Akun ini terdaftar melalui Google. Silakan masuk dengan Google.',
+        message: 'Akun ini terdaftar melalui Google. Silakan masuk dengan tombol Google.',
         code: 'USE_GOOGLE_SIGNIN',
       },
       400,
@@ -171,7 +171,7 @@ authRoute.post('/login', async (c) => {
     return c.json(
       {
         error: true,
-        message: 'Email atau password salah',
+        message: 'Kata sandi tidak valid atau belum diatur untuk akun ini.',
         code: 'INVALID_CREDENTIALS',
       },
       401,
@@ -183,7 +183,7 @@ authRoute.post('/login', async (c) => {
     return c.json(
       {
         error: true,
-        message: 'Email atau password salah',
+        message: 'Kata sandi yang Anda masukkan salah. Silakan coba lagi.',
         code: 'INVALID_CREDENTIALS',
       },
       401,
@@ -260,17 +260,29 @@ authRoute.post('/google', async (c) => {
     )
   }
 
+  const { credential, mode = 'login' } = parsed.data
+
   const [existingUser] = await db
     .select()
     .from(users)
     .where(eq(users.email, googleData.email))
     .limit(1)
 
-  let user = existingUser
-  let isNewUser = false
+  // LOGIK LOGIN: Akun HARUS sudah ada di database! Tidak boleh auto-create di halaman login.
+  if (mode === 'login') {
+    if (!existingUser) {
+      return c.json(
+        {
+          error: true,
+          message: 'Akun dengan email Google ini belum terdaftar. Silakan daftar terlebih dahulu.',
+          code: 'USER_NOT_FOUND',
+          email: googleData.email,
+        },
+        404,
+      )
+    }
 
-  if (user) {
-    if (user.role !== 'customer') {
+    if (existingUser.role !== 'customer') {
       return c.json(
         {
           error: true,
@@ -281,7 +293,7 @@ authRoute.post('/google', async (c) => {
       )
     }
 
-    if (user.isActive === false) {
+    if (existingUser.isActive === false) {
       return c.json(
         {
           error: true,
@@ -292,7 +304,8 @@ authRoute.post('/google', async (c) => {
       )
     }
 
-    // Tautkan google_id jika belum ada, dan isi email_verified_at jika masih kosong
+    // Tautkan google_id jika belum ada, dan sinkronkan status verifikasi dari Google
+    let user = existingUser
     const updateData: Partial<typeof users.$inferInsert> = {}
     if (!user.googleId) updateData.googleId = googleData.googleId
     if (!user.emailVerifiedAt) updateData.emailVerifiedAt = new Date()
@@ -305,38 +318,109 @@ authRoute.post('/google', async (c) => {
         .returning()
       user = updated
     }
-  } else {
-    // Buat customer baru
-    isNewUser = true
-    const [created] = await db
-      .insert(users)
-      .values({
-        name: googleData.name,
-        email: googleData.email,
-        googleId: googleData.googleId,
-        role: 'customer',
-        isActive: true,
-        emailVerifiedAt: new Date(),
-      })
-      .returning()
-    user = created
+
+    const token = createJwtToken(user.id, user.role)
+    setAuthCookie(c, token)
+
+    return c.json({
+      error: false,
+      data: {
+        message: 'Login dengan Google berhasil',
+        user: {
+          id: user.id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          email_verified: Boolean(user.emailVerifiedAt),
+        },
+        is_new_user: false,
+      },
+    })
   }
 
-  const token = createJwtToken(user.id, user.role)
+  // LOGIK REGISTER: Akun TIDAK BOLEH sudah ada di database!
+  if (existingUser) {
+    return c.json(
+      {
+        error: true,
+        message: 'Email Google ini sudah terdaftar. Silakan masuk melalui halaman login.',
+        code: 'EMAIL_ALREADY_REGISTERED',
+      },
+      409,
+    )
+  }
+
+  // Buat customer baru dari pendaftaran Google
+  const [createdUser] = await db
+    .insert(users)
+    .values({
+      name: googleData.name,
+      email: googleData.email,
+      googleId: googleData.googleId,
+      role: 'customer',
+      isActive: true,
+      emailVerifiedAt: new Date(),
+    })
+    .returning()
+
+  const token = createJwtToken(createdUser.id, createdUser.role)
   setAuthCookie(c, token)
+
+  return c.json(
+    {
+      error: false,
+      data: {
+        message: 'Registrasi dengan Google berhasil',
+        user: {
+          id: createdUser.id,
+          name: createdUser.name,
+          email: createdUser.email,
+          role: createdUser.role,
+          email_verified: true,
+        },
+        is_new_user: true,
+      },
+    },
+    201,
+  )
+})
+
+// GET /api/auth/verify-email
+authRoute.get('/verify-email', async (c) => {
+  const token = c.req.query('token')
+
+  if (!token) {
+    return c.json(
+      {
+        error: true,
+        message: 'Token verifikasi tidak boleh kosong',
+        code: 'VALIDATION_ERROR',
+      },
+      400,
+    )
+  }
+
+  const result = await verificationService.verifyToken(token)
+
+  if (!result.success) {
+    const isExpired = result.code === 'TOKEN_EXPIRED'
+    return c.json(
+      {
+        error: true,
+        message: isExpired
+          ? 'Token verifikasi telah kadaluarsa. Silakan ajukan kirim ulang.'
+          : 'Token verifikasi tidak valid atau telah digunakan.',
+        code: result.code || 'TOKEN_INVALID',
+      },
+      400,
+    )
+  }
 
   return c.json({
     error: false,
     data: {
-      message: 'Login dengan Google berhasil',
-      user: {
-        id: user.id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        email_verified: true,
-      },
-      is_new_user: isNewUser,
+      message: 'Email berhasil diverifikasi',
+      email_verified: true,
     },
   })
 })
@@ -383,10 +467,62 @@ authRoute.post('/verify-email', async (c) => {
 })
 
 // POST /api/auth/resend-verification
-authRoute.post('/resend-verification', authMiddleware, async (c) => {
-  const user = c.get('user')
+authRoute.post('/resend-verification', async (c) => {
+  let targetUserId: number | null = null
+  let targetUserEmail: string | null = null
+  let targetUserName: string | null = null
+  let isVerified = false
 
-  if (user.emailVerifiedAt) {
+  // 1. Check JWT auth session
+  const cookieToken = getCookie(c, 'auth')
+  const authHeader = c.req.header('Authorization')
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
+  const token = cookieToken || bearerToken
+
+  if (token) {
+    try {
+      const jwtSecret = process.env.JWT_SECRET || 'fallback-secret'
+      const decoded = jwt.verify(token, jwtSecret) as JwtPayload
+      if (decoded?.userId) {
+        const [u] = await db.select().from(users).where(eq(users.id, decoded.userId)).limit(1)
+        if (u) {
+          targetUserId = u.id
+          targetUserEmail = u.email
+          targetUserName = u.name
+          isVerified = Boolean(u.emailVerifiedAt)
+        }
+      }
+    } catch {
+      // invalid token, fallback to body
+    }
+  }
+
+  // 2. Fallback to email in request body
+  if (!targetUserId) {
+    const body = await c.req.json().catch(() => ({}))
+    if (body.email) {
+      const [u] = await db.select().from(users).where(eq(users.email, String(body.email).toLowerCase())).limit(1)
+      if (u) {
+        targetUserId = u.id
+        targetUserEmail = u.email
+        targetUserName = u.name
+        isVerified = Boolean(u.emailVerifiedAt)
+      }
+    }
+  }
+
+  if (!targetUserId || !targetUserEmail || !targetUserName) {
+    return c.json(
+      {
+        error: true,
+        message: 'Pengguna tidak ditemukan. Silakan masuk atau masukkan email Anda.',
+        code: 'NOT_FOUND',
+      },
+      404,
+    )
+  }
+
+  if (isVerified) {
     return c.json(
       {
         error: true,
@@ -397,7 +533,7 @@ authRoute.post('/resend-verification', authMiddleware, async (c) => {
     )
   }
 
-  const rateLimit = await verificationService.checkRateLimit(user.id)
+  const rateLimit = await verificationService.checkRateLimit(targetUserId)
   if (!rateLimit.allowed) {
     if (rateLimit.code === 'RESEND_TOO_SOON') {
       return c.json(
@@ -421,11 +557,11 @@ authRoute.post('/resend-verification', authMiddleware, async (c) => {
     )
   }
 
-  const token = await verificationService.createToken(user.id)
+  const verificationToken = await verificationService.createToken(targetUserId)
   await emailService.sendVerificationEmail({
-    to: user.email,
-    name: user.name,
-    token,
+    to: targetUserEmail,
+    name: targetUserName,
+    token: verificationToken,
   })
 
   return c.json({

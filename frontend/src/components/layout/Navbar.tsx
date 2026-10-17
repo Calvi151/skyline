@@ -1,11 +1,12 @@
 import { useEffect } from 'react'
-import { Link, useLocation } from 'react-router-dom'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
 import ThemeToggle from '../common/ThemeToggle'
 import { useAuthStore } from '../../store/authStore'
 import { api } from '../../lib/api'
 
 export default function Navbar() {
   const location = useLocation()
+  const navigate = useNavigate()
   const { user, setUser } = useAuthStore()
 
   useEffect(() => {
@@ -30,6 +31,7 @@ export default function Navbar() {
       // ignore
     } finally {
       setUser(null)
+      navigate('/', { replace: true })
     }
   }
 
