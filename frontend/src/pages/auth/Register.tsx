@@ -90,8 +90,8 @@ export default function Register() {
       })
 
       if (response.data && !response.data.error) {
-        // Alur urutan: Setelah register -> arahkan ke Login dengan query param email & registered
-        navigate(`/login?registered=1&email=${encodeURIComponent(email.trim().toLowerCase())}`)
+        // Alur urutan: Setelah register -> arahkan ke halaman Cek Email
+        navigate(`/check-email?email=${encodeURIComponent(email.trim().toLowerCase())}`)
       } else {
         setErrorMessage(response.data.message || 'Registrasi gagal. Silakan coba lagi.')
       }

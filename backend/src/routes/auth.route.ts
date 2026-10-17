@@ -102,15 +102,12 @@ authRoute.post('/register', async (c) => {
     .then((token) => emailService.sendVerificationEmail({ to: email, name, token }))
     .catch((err) => console.error('[Register] Gagal membuat token/mengirim email verifikasi:', err))
 
-  // Buat sesi JWT dan set-cookie
-  const token = createJwtToken(newUser.id, newUser.role)
-  setAuthCookie(c, token)
-
+  // Registrasi berhasil: Tidak memberi cookie login agar user wajib verifikasi email terlebih dahulu
   return c.json(
     {
       error: false,
       data: {
-        message: 'Registrasi berhasil',
+        message: 'Registrasi berhasil. Silakan periksa email Anda untuk verifikasi akun.',
         user: {
           id: newUser.id,
           name: newUser.name,
@@ -196,6 +193,19 @@ authRoute.post('/login', async (c) => {
         error: true,
         message: 'Akun telah dinonaktifkan',
         code: 'ACCOUNT_DISABLED',
+      },
+      403,
+    )
+  }
+
+  // Wajib verifikasi email sebelum login (Alur Strict)
+  if (!user.emailVerifiedAt) {
+    return c.json(
+      {
+        error: true,
+        message: 'Email akun Anda belum diverifikasi. Silakan periksa inbox email Anda untuk mengaktifkan akun.',
+        code: 'EMAIL_NOT_VERIFIED',
+        email: user.email,
       },
       403,
     )

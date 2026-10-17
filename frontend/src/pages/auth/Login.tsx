@@ -75,6 +75,11 @@ export default function Login() {
       const code = err.response?.data?.code
       const serverMsg = err.response?.data?.message || err.response?.data?.error
 
+      if (code === 'EMAIL_NOT_VERIFIED' || (serverMsg && serverMsg.toLowerCase().includes('belum diverifikasi'))) {
+        navigate(`/check-email?email=${encodeURIComponent(email.trim().toLowerCase())}`)
+        return
+      }
+
       if (
         status === 404 ||
         code === 'USER_NOT_FOUND' ||
