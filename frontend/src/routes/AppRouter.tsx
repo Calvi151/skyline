@@ -9,6 +9,7 @@ import Login from '../pages/auth/Login'
 import Register from '../pages/auth/Register'
 import CheckEmail from '../pages/auth/CheckEmail'
 import VerifyEmail from '../pages/auth/VerifyEmail'
+import ComponentsShowcase from '../pages/dev/ComponentsShowcase'
 import Navbar from '../components/layout/Navbar'
 import Footer from '../components/layout/Footer'
 
@@ -72,6 +73,7 @@ export default function AppRouter() {
         <Route path="/check-in" element={<CheckIn />} />
         <Route path="/checkin" element={<CheckIn />} />
         <Route path="/search" element={<div className="p-8 pt-24 text-ink">Hasil Pencarian (segera hadir)</div>} />
+        <Route path="/dev/components" element={<ComponentsShowcase />} />
 
         {/* Auth (Guest Only — sudah login = redirect ke dashboard) */}
         <Route path="/login" element={<GuestOnly><Login /></GuestOnly>} />

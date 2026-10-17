@@ -13,14 +13,14 @@ Urutan desain dan implementasi halaman: lihat `STITCH_PROMPT.md` (hanya untuk me
 - [x] Email service (Nodemailer/SMTP) + template email verifikasi
 - [x] Endpoint verify-email dan resend-verification (cooldown 60 detik, maks 5/jam)
 - [x] Endpoint POST /api/auth/google (verifikasi ID token, buat/tautkan akun customer)
-- [ ] Guard EMAIL_NOT_VERIFIED pada POST /api/bookings
+- [x] Guard EMAIL_NOT_VERIFIED pada POST /api/bookings
 - [x] Implementasi JWT middleware + role middleware
-- [ ] Setup React + Vite + Tailwind + shadcn/ui
-- [ ] Buat halaman Login & Register (dengan tombol Google), CheckEmail, VerifyEmail
-- [ ] Komponen GoogleSignInButton + EmailVerificationBanner + BrandPanel + PasswordChecklist
-- [ ] Setup Zustand auth store + protected routes
-- [ ] Setup design tokens + komponen dasar (lihat DESIGN_SYSTEM.md dan PAGE_PROMPTS.md Prompt 0)
-- [ ] Tema terang dan gelap: CSS variables, ThemeToggle, themeStore, skrip anti-kedip di index.html, cek kontras di kedua tema
+- [x] Setup React + Vite + Tailwind + shadcn/ui
+- [x] Buat halaman Login & Register (dengan tombol Google), CheckEmail, VerifyEmail
+- [x] Komponen GoogleSignInButton + EmailVerificationBanner + BrandPanel + PasswordChecklist
+- [x] Setup Zustand auth store + protected routes
+- [x] Setup design tokens + komponen dasar (lihat DESIGN_SYSTEM.md dan PAGE_PROMPTS.md Prompt 0)
+- [x] Tema terang dan gelap: CSS variables, ThemeToggle, themeStore, skrip anti-kedip di index.html, cek kontras di kedua tema
 
 ## Phase 2: Admin - Master Data (Week 2)
 - [ ] CRUD API: airports, airlines, airplanes
