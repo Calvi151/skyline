@@ -1,12 +1,28 @@
-import { BrowserRouter, Routes, Route, Link } from 'react-router-dom'
+import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom'
+import { useAuthStore } from '../store/authStore'
 import Landing from '../pages/customer/Landing'
 import CheckIn from '../pages/customer/CheckIn'
+import CustomerDashboard from '../pages/customer/CustomerDashboard'
+import AdminDashboard from '../pages/admin/Dashboard'
+import StaffDashboard from '../pages/staff/Dashboard'
 import Login from '../pages/auth/Login'
 import Register from '../pages/auth/Register'
 import CheckEmail from '../pages/auth/CheckEmail'
 import VerifyEmail from '../pages/auth/VerifyEmail'
+import ComponentsShowcase from '../pages/dev/ComponentsShowcase'
 import Navbar from '../components/layout/Navbar'
 import Footer from '../components/layout/Footer'
+
+/** Redirect kalau sudah login dan coba akses /login atau /register */
+function GuestOnly({ children }: { children: React.ReactNode }) {
+  const user = useAuthStore((s) => s.user)
+  if (user) {
+    if (user.role === 'admin') return <Navigate to="/admin" replace />
+    if (user.role === 'staff') return <Navigate to="/staff" replace />
+    return <Navigate to="/dashboard" replace />
+  }
+  return <>{children}</>
+}
 
 function NotFound() {
   return (
@@ -52,18 +68,29 @@ export default function AppRouter() {
   return (
     <BrowserRouter>
       <Routes>
+        {/* Public */}
         <Route path="/" element={<Landing />} />
         <Route path="/check-in" element={<CheckIn />} />
         <Route path="/checkin" element={<CheckIn />} />
-        
-        {/* Routes */}
         <Route path="/search" element={<div className="p-8 pt-24 text-ink">Hasil Pencarian (segera hadir)</div>} />
-        <Route path="/login" element={<Login />} />
-        <Route path="/register" element={<Register />} />
+        <Route path="/dev/components" element={<ComponentsShowcase />} />
+
+        {/* Auth (Guest Only — sudah login = redirect ke dashboard) */}
+        <Route path="/login" element={<GuestOnly><Login /></GuestOnly>} />
+        <Route path="/register" element={<GuestOnly><Register /></GuestOnly>} />
         <Route path="/check-email" element={<CheckEmail />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
 
-        {/* Catch-all Not Found Route */}
+        {/* Customer */}
+        <Route path="/dashboard" element={<CustomerDashboard />} />
+
+        {/* Admin */}
+        <Route path="/admin" element={<AdminDashboard />} />
+
+        {/* Staff */}
+        <Route path="/staff" element={<StaffDashboard />} />
+
+        {/* Catch-all */}
         <Route path="*" element={<NotFound />} />
       </Routes>
     </BrowserRouter>

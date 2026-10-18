@@ -26,7 +26,7 @@ class EmailService {
       secure: Number(process.env.SMTP_PORT) === 465,
       auth: {
         user,
-        pass: pass ?? '',
+        pass: pass ? pass.replace(/\s+/g, '') : '',
       },
     })
 

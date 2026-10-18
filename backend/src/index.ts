@@ -3,6 +3,7 @@ import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import authRoute from './routes/auth.route.js'
+import bookingsRoute from './routes/customer/bookings.route.js'
 
 const app = new Hono()
 
@@ -19,6 +20,7 @@ app.get('/', (c) => c.json({ error: false, data: { message: 'SkyBook API' } }))
 
 // Mount API routes
 app.route('/api/auth', authRoute)
+app.route('/api/bookings', bookingsRoute)
 
 // 404 handler
 app.notFound((c) => {

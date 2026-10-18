@@ -92,8 +92,8 @@ export default function CheckEmail() {
 
           {/* Graphic Container with Peeking Secondary Ticket & Seat Map Card */}
           <div className="relative pt-4 pb-2">
-            {/* Peeking Background Ticket */}
-            <div className="absolute -bottom-2 right-1 w-64 h-36 bg-white/10 backdrop-blur-md rounded-ticket p-3.5 border border-white/20 transform rotate-6 translate-x-3 translate-y-3 pointer-events-none z-0 hidden sm:block">
+            {/* Peeking Background Ticket with Hover Interaction */}
+            <div className="absolute -bottom-2 right-1 w-64 h-36 bg-white/10 backdrop-blur-md rounded-ticket p-3.5 border border-white/20 transform rotate-6 translate-x-3 translate-y-3 pointer-events-none z-0 hidden sm:block transition-all duration-500 hover:rotate-8 hover:translate-x-4">
               <div className="flex items-center justify-between border-b border-white/20 pb-1.5">
                 <span className="text-[9px] font-bold text-white/70 uppercase tracking-wider">
                   BOARDING TICKET
@@ -111,11 +111,20 @@ export default function CheckEmail() {
               </div>
             </div>
 
-            {/* Main Interactive Seat Map Card */}
-            <div className="relative z-10 bg-panel text-ink rounded-ticket p-4 sm:p-5 shadow-2xl border border-line transform -rotate-1 hover:rotate-0 transition-transform duration-300">
-              <div className="flex items-center justify-between pb-2.5 border-b border-line">
+            {/* Main Interactive Seat Map Card with Floating Animation & Shimmer */}
+            <div className="relative z-10 bg-panel text-ink rounded-ticket p-4 sm:p-5 shadow-2xl border border-line animate-float hover:!transform-none hover:scale-[1.02] transition-all duration-300 overflow-hidden select-none">
+              {/* Shimmer light sweep pass */}
+              <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-ticket">
+                <div className="w-1/2 h-full bg-gradient-to-r from-transparent via-white/20 dark:via-white/10 to-transparent skew-x-[-20deg] animate-shimmer" />
+              </div>
+
+              {/* Card Header */}
+              <div className="flex items-center justify-between pb-2.5 border-b border-line relative z-10">
                 <div className="flex items-center gap-1.5">
-                  <span className="w-2 h-2 rounded-full bg-brand-fg" />
+                  <span className="relative flex h-2 w-2">
+                    <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-brand-fg opacity-75" />
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-brand-fg" />
+                  </span>
                   <span className="text-[10px] font-bold uppercase tracking-wider text-subtle">
                     PETA KURSI KABIN (ROW 14-16)
                   </span>
@@ -126,7 +135,7 @@ export default function CheckEmail() {
               </div>
 
               {/* Column Identifiers */}
-              <div className="grid grid-cols-7 gap-1.5 text-center text-[10px] font-bold text-subtle my-2.5 px-1">
+              <div className="grid grid-cols-7 gap-1.5 text-center text-[10px] font-bold text-subtle my-2.5 px-1 relative z-10">
                 <div>A</div>
                 <div>B</div>
                 <div>C</div>
@@ -139,15 +148,15 @@ export default function CheckEmail() {
               </div>
 
               {/* Seat Matrix Grid */}
-              <div className="space-y-1.5">
+              <div className="space-y-1.5 relative z-10">
                 {/* Row 14 */}
                 <div className="grid grid-cols-7 gap-1.5 items-center text-center">
                   <button
                     type="button"
                     onClick={() => toggleSeat('14A')}
-                    className={`h-8 rounded-control flex items-center justify-center text-xs font-bold transition-all shadow-sm ${
+                    className={`h-8 rounded-control flex items-center justify-center text-xs font-bold transition-all shadow-sm active:scale-90 hover:scale-105 duration-150 ${
                       selectedSeats.includes('14A')
-                        ? 'bg-signal text-white ring-2 ring-signal/30 scale-105'
+                        ? 'bg-signal text-white ring-2 ring-signal/30 scale-105 animate-seat-pop'
                         : 'bg-panel border border-line text-ink hover:border-brand-fg'
                     }`}
                   >
@@ -161,29 +170,29 @@ export default function CheckEmail() {
                   <button
                     type="button"
                     onClick={() => toggleSeat('14B')}
-                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all ${
+                    className={`h-8 rounded-control flex items-center justify-center text-[11px] font-medium transition-all active:scale-90 hover:scale-105 duration-150 ${
                       selectedSeats.includes('14B')
-                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30'
+                        ? 'bg-signal text-white font-bold ring-2 ring-signal/30 scale-105 animate-seat-pop'
                         : 'bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg'
                     }`}
                   >
                     14B
                   </button>
 
-                  <div className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed">
+                  <div className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed select-none">
                     <span className="material-symbols-outlined text-[13px] opacity-60">close</span>
                   </div>
 
-                  <span className="text-[10px] font-bold text-subtle">14</span>
+                  <span className="text-[10px] font-bold text-subtle select-none">14</span>
 
-                  <div className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed">
+                  <div className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed select-none">
                     <span className="material-symbols-outlined text-[13px] opacity-60">close</span>
                   </div>
 
                   <button
                     type="button"
                     onClick={() => toggleSeat('14E')}
-                    className="h-8 rounded-control bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg flex items-center justify-center text-[11px] font-medium"
+                    className="h-8 rounded-control bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg flex items-center justify-center text-[11px] font-medium active:scale-90 hover:scale-105 duration-150"
                   >
                     14E
                   </button>
@@ -191,7 +200,7 @@ export default function CheckEmail() {
                   <button
                     type="button"
                     onClick={() => toggleSeat('14F')}
-                    className="h-8 rounded-control bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg flex items-center justify-center text-[11px] font-medium"
+                    className="h-8 rounded-control bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg flex items-center justify-center text-[11px] font-medium active:scale-90 hover:scale-105 duration-150"
                   >
                     14F
                   </button>
@@ -202,37 +211,47 @@ export default function CheckEmail() {
                   <button
                     type="button"
                     onClick={() => toggleSeat('15A')}
-                    className="h-8 rounded-control bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg flex items-center justify-center text-[11px] font-medium"
+                    className="h-8 rounded-control bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg flex items-center justify-center text-[11px] font-medium active:scale-90 hover:scale-105 duration-150"
                   >
                     15A
                   </button>
 
-                  <div className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed">
+                  <div className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed select-none">
                     <span className="material-symbols-outlined text-[13px] opacity-60">close</span>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => toggleSeat('15C')}
-                    className={`h-8 rounded-control flex items-center justify-center text-xs font-bold transition-all shadow-sm ${
-                      selectedSeats.includes('15C')
-                        ? 'bg-signal text-white ring-2 ring-signal/30 scale-105'
-                        : 'bg-panel border border-line text-ink hover:border-brand-fg'
-                    }`}
-                  >
-                    {selectedSeats.includes('15C') ? (
-                      <span className="material-symbols-outlined text-[14px]">check</span>
-                    ) : (
-                      '15C'
-                    )}
-                  </button>
+                  <div className="relative">
+                    <button
+                      type="button"
+                      onClick={() => toggleSeat('15C')}
+                      className={`w-full h-8 rounded-control flex items-center justify-center text-xs font-bold transition-all shadow-sm active:scale-90 hover:scale-105 duration-150 ${
+                        selectedSeats.includes('15C')
+                          ? 'bg-signal text-white ring-2 ring-signal/30 scale-105 animate-seat-pop'
+                          : 'bg-panel border border-line text-ink hover:border-brand-fg'
+                      }`}
+                    >
+                      {selectedSeats.includes('15C') ? (
+                        <span className="material-symbols-outlined text-[14px]">check</span>
+                      ) : (
+                        '15C'
+                      )}
+                    </button>
 
-                  <span className="text-[10px] font-bold text-subtle">15</span>
+                    {/* Floating Bobbing Tooltip */}
+                    {selectedSeats.includes('15C') && (
+                      <div className="absolute -top-8 left-1/2 -translate-x-1/2 whitespace-nowrap bg-brand-panel text-white text-[9px] font-semibold px-2 py-0.5 rounded shadow-lg pointer-events-none z-30 animate-fadeIn animate-bob">
+                        Kursi 15C, lorong, gratis
+                        <div className="absolute top-full left-1/2 -translate-x-1/2 border-4 border-transparent border-t-brand-panel" />
+                      </div>
+                    )}
+                  </div>
+
+                  <span className="text-[10px] font-bold text-subtle select-none">15</span>
 
                   <button
                     type="button"
                     onClick={() => toggleSeat('15D')}
-                    className="h-8 rounded-control bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg flex items-center justify-center text-[11px] font-medium"
+                    className="h-8 rounded-control bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg flex items-center justify-center text-[11px] font-medium active:scale-90 hover:scale-105 duration-150"
                   >
                     15D
                   </button>
@@ -240,19 +259,19 @@ export default function CheckEmail() {
                   <button
                     type="button"
                     onClick={() => toggleSeat('15E')}
-                    className="h-8 rounded-control bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg flex items-center justify-center text-[11px] font-medium"
+                    className="h-8 rounded-control bg-panel border border-line text-subtle hover:text-ink hover:border-brand-fg flex items-center justify-center text-[11px] font-medium active:scale-90 hover:scale-105 duration-150"
                   >
                     15E
                   </button>
 
-                  <div className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed">
+                  <div className="h-8 rounded-control bg-page/70 border border-line/50 flex items-center justify-center text-muted cursor-not-allowed select-none">
                     <span className="material-symbols-outlined text-[13px] opacity-60">close</span>
                   </div>
                 </div>
               </div>
 
               {/* Summary */}
-              <div className="mt-3 pt-2.5 border-t border-line flex items-center justify-between text-[11px]">
+              <div className="mt-3 pt-2.5 border-t border-line flex items-center justify-between text-[11px] relative z-10">
                 <div className="flex items-center gap-1.5">
                   <span className="w-2 h-2 rounded bg-signal inline-block" />
                   <span className="font-bold text-ink">{selectedSeats.length} kursi dipilih</span>
@@ -287,6 +306,10 @@ export default function CheckEmail() {
             <span>Standar Keselamatan IATA</span>
           </div>
         </div>
+
+        {/* Ambient background glows with pulse animation */}
+        <div className="absolute -right-32 -top-32 w-96 h-96 rounded-full bg-white/5 pointer-events-none blur-3xl animate-pulse-glow" />
+        <div className="absolute -left-20 -bottom-20 w-80 h-80 rounded-full bg-brand-hover/40 pointer-events-none blur-2xl animate-pulse-glow" />
       </div>
 
       {/* ─── RIGHT HALF: FORM PANEL ─── */}
@@ -305,17 +328,19 @@ export default function CheckEmail() {
           </div>
         </div>
 
-        {/* Centered Check Email Card */}
-        <div className="w-full max-w-[480px] mx-auto my-auto py-2">
+        {/* Centered Check Email Card with Fade-In-Up */}
+        <div className="w-full max-w-[480px] mx-auto my-auto py-2 animate-fadeInUp">
           {/* Step Indicator */}
           <div className="mb-4 flex items-center justify-between text-xs font-semibold text-subtle uppercase tracking-wider">
             <span>Langkah 2 dari 2 • Aktivasi Akun</span>
           </div>
 
           <div className="bg-panel rounded-ticket border border-line p-6 sm:p-8 shadow-sm">
-            {/* Envelope Icon Header */}
-            <div className="w-12 h-12 rounded-full bg-tint flex items-center justify-center text-brand-fg mb-5">
-              <span className="material-symbols-outlined text-[26px]">mark_email_unread</span>
+            {/* Envelope Icon Header with Bobbing Motion & Ping Ring */}
+            <div className="w-14 h-14 rounded-full bg-tint flex items-center justify-center text-brand-fg mb-5 relative shadow-sm animate-bob">
+              <span className="material-symbols-outlined text-[28px]">mark_email_unread</span>
+              <span className="absolute -top-1 -right-1 w-3 h-3 bg-brand-fg rounded-full animate-ping" />
+              <span className="absolute -top-1 -right-1 w-3 h-3 bg-brand-fg rounded-full" />
             </div>
 
             {/* Headline */}
@@ -373,10 +398,10 @@ export default function CheckEmail() {
                 type="button"
                 onClick={handleResend}
                 disabled={cooldown > 0 || isResending}
-                className={`w-full h-11 rounded-control text-xs font-semibold flex items-center justify-center gap-2 transition-all ${
+                className={`w-full h-11 rounded-control text-xs font-semibold flex items-center justify-center gap-2 transition-all duration-200 ${
                   cooldown > 0
                     ? 'bg-page text-subtle cursor-not-allowed border border-line'
-                    : 'bg-brand hover:bg-brand-hover text-white active:scale-[0.99] shadow-sm'
+                    : 'bg-brand hover:bg-brand-hover hover:shadow-lg hover:shadow-brand/25 hover:-translate-y-0.5 active:translate-y-0 text-white active:scale-[0.99] shadow-sm'
                 }`}
               >
                 {isResending ? (
@@ -412,10 +437,10 @@ export default function CheckEmail() {
             <div className="text-center pt-2 border-t border-line">
               <Link
                 to="/"
-                className="inline-flex items-center gap-1 text-xs font-semibold text-brand-fg hover:underline"
+                className="inline-flex items-center gap-1 text-xs font-semibold text-brand-fg hover:underline group"
               >
                 <span>Lanjut cari tiket penerbangan</span>
-                <span className="material-symbols-outlined text-[15px]">arrow_forward</span>
+                <span className="material-symbols-outlined text-[15px] group-hover:translate-x-1 transition-transform duration-200">arrow_forward</span>
               </Link>
               <p className="text-[11px] text-subtle mt-1">
                 Kamu tetap dapat menelusuri jadwal dan rute sebelum verifikasi
@@ -423,9 +448,9 @@ export default function CheckEmail() {
             </div>
           </div>
 
-          {/* Toast Notification Alert */}
+          {/* Toast Notification Alert with scaleIn spring entrance */}
           {showToast && (
-            <div className="mt-4 bg-panel border border-line rounded-control p-3.5 shadow-md flex items-center justify-between gap-3 animate-fadeIn">
+            <div className="mt-4 bg-panel border border-line rounded-control p-3.5 shadow-lg flex items-center justify-between gap-3 animate-scaleIn">
               <div className="flex items-center gap-2.5 min-w-0">
                 <div className="w-6 h-6 rounded-full bg-success/15 text-success flex items-center justify-center shrink-0">
                   <span className="material-symbols-outlined text-[15px]">check</span>

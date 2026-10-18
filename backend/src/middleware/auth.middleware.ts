@@ -85,3 +85,23 @@ export const authMiddleware = createMiddleware<{
 
   await next()
 })
+
+export const requireVerifiedEmail = createMiddleware<{
+  Variables: {
+    user: UserContext
+    userId: number
+  }
+}>(async (c, next) => {
+  const user = c.get('user')
+  if (!user || !user.emailVerifiedAt) {
+    return c.json(
+      {
+        error: true,
+        message: 'Email Anda belum diverifikasi. Harap verifikasi email terlebih dahulu sebelum melakukan pemesanan.',
+        code: 'EMAIL_NOT_VERIFIED',
+      },
+      403,
+    )
+  }
+  await next()
+})

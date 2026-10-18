@@ -8,16 +8,18 @@ import ThemeToggle from '../../components/common/ThemeToggle'
 export default function Login() {
   const navigate = useNavigate()
   const [searchParams] = useSearchParams()
-  const redirectUrl = searchParams.get('redirect') || '/'
+  const redirectUrl = searchParams.get('redirect') || '/dashboard'
+  const registeredSuccess = searchParams.get('registered') === '1'
 
   const { setUser } = useAuthStore()
 
   // Form states
-  const [email, setEmail] = useState('')
+  const [email, setEmail] = useState(searchParams.get('email') || '')
   const [password, setPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [showNotFoundModal, setShowNotFoundModal] = useState(false)
 
   // Email format validation helper
   const isEmailValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
@@ -50,9 +52,15 @@ export default function Login() {
 
     try {
       // Attempt backend API login
-      const res = await api.post('/auth/login', { email, password })
+      const res = await api.post('/auth/login', { email: email.trim().toLowerCase(), password })
       const userData: AuthUser = res.data.data?.user || res.data.user
       setUser(userData)
+
+      // ALUR URUTAN: Jika email belum diverifikasi, arahkan ke verifikasi email!
+      if (!userData.email_verified) {
+        navigate(`/check-email?email=${encodeURIComponent(userData.email)}`)
+        return
+      }
 
       // Role-based redirection
       if (userData.role === 'admin') {
@@ -63,45 +71,30 @@ export default function Login() {
         navigate(redirectUrl)
       }
     } catch (err: any) {
-      // If backend responds with specific error code or backend is not running yet
-      const apiError = err.response?.data?.message || err.response?.data?.error
+      const status = err.response?.status
+      const code = err.response?.data?.code
+      const serverMsg = err.response?.data?.message || err.response?.data?.error
 
-      if (apiError) {
-        setErrorMessage(apiError)
+      if (code === 'EMAIL_NOT_VERIFIED' || (serverMsg && serverMsg.toLowerCase().includes('belum diverifikasi'))) {
+        navigate(`/check-email?email=${encodeURIComponent(email.trim().toLowerCase())}`)
+        return
+      }
+
+      if (
+        status === 404 ||
+        code === 'USER_NOT_FOUND' ||
+        (serverMsg && (
+          serverMsg.toLowerCase().includes('belum terdaftar') ||
+          serverMsg.toLowerCase().includes('tidak ditemukan')
+        ))
+      ) {
+        // Tampilkan Modal bahwa akun belum terdaftar
+        setShowNotFoundModal(true)
+        setErrorMessage(null)
+      } else if (serverMsg) {
+        setErrorMessage(serverMsg)
       } else {
-        // Fallback demo simulation for offline/preview mode
-        console.warn('Backend unavailable, simulating login with mock session:', err.message)
-        
-        let role: 'admin' | 'staff' | 'customer' = 'customer'
-        let name = 'Rina Wulandari'
-
-        if (email.includes('admin')) {
-          role = 'admin'
-          name = 'Admin Operasional'
-        } else if (email.includes('staff')) {
-          role = 'staff'
-          name = 'Staff Bandara'
-        }
-
-        const mockUser: AuthUser = {
-          id: 101,
-          name,
-          email,
-          role,
-          email_verified: true,
-        }
-
-        setUser(mockUser)
-
-        setTimeout(() => {
-          if (role === 'admin') {
-            navigate('/admin')
-          } else if (role === 'staff') {
-            navigate('/staff')
-          } else {
-            navigate(redirectUrl)
-          }
-        }, 500)
+        setErrorMessage('Terjadi gangguan koneksi. Pastikan server backend sedang berjalan.')
       }
     } finally {
       setIsLoading(false)
@@ -120,9 +113,16 @@ export default function Login() {
     try {
       const res = await api.post('/auth/google', {
         credential: credentialResponse.credential,
+        mode: 'login',
       })
       const userData: AuthUser = res.data.data?.user || res.data.user
       setUser(userData)
+
+      // ALUR URUTAN: Jika email belum diverifikasi, arahkan ke verifikasi email!
+      if (!userData.email_verified) {
+        navigate(`/check-email?email=${encodeURIComponent(userData.email)}`)
+        return
+      }
 
       if (userData.role === 'admin') {
         navigate('/admin')
@@ -132,9 +132,31 @@ export default function Login() {
         navigate(redirectUrl)
       }
     } catch (err: any) {
-      setErrorMessage(
-        err.response?.data?.message || 'Gagal masuk dengan akun Google. Pastikan Client ID sudah terdaftar di Google Cloud.'
-      )
+      const status = err.response?.status
+      const code = err.response?.data?.code
+      const serverMsg = err.response?.data?.message || err.response?.data?.error
+      const errorEmail = err.response?.data?.email
+
+      if (
+        status === 404 ||
+        code === 'USER_NOT_FOUND' ||
+        (serverMsg && (
+          serverMsg.toLowerCase().includes('belum terdaftar') ||
+          serverMsg.toLowerCase().includes('tidak ditemukan')
+        ))
+      ) {
+        if (errorEmail) {
+          setEmail(errorEmail)
+        }
+        setShowNotFoundModal(true)
+        setErrorMessage(null)
+      } else if (serverMsg) {
+        setErrorMessage(serverMsg)
+      } else {
+        setErrorMessage(
+          'Gagal masuk dengan akun Google. Pastikan Client ID sudah terdaftar di Google Cloud.'
+        )
+      }
     } finally {
       setIsLoading(false)
     }
@@ -529,6 +551,21 @@ export default function Login() {
 
         {/* Form Container (440px wide) */}
         <div className="w-full max-w-[440px] mx-auto my-auto py-4 animate-fadeInUp">
+          {/* Notification: Baru Selesai Registrasi */}
+          {registeredSuccess && (
+            <div className="mb-4 bg-emerald-500/10 border border-emerald-500/30 rounded-control p-4 flex items-start gap-3 shadow-sm text-left animate-fadeIn">
+              <div className="w-7 h-7 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 flex items-center justify-center shrink-0 mt-0.5">
+                <span className="material-symbols-outlined text-[18px]">check_circle</span>
+              </div>
+              <div className="text-xs text-ink leading-relaxed">
+                <span className="font-bold text-emerald-600 dark:text-emerald-400 text-sm block">Pendaftaran Berhasil!</span>
+                <p className="text-subtle mt-0.5">
+                  Akun Anda telah terdaftar. Silakan masukkan kata sandi yang baru Anda buat untuk masuk ke akun Anda.
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Informational Callout Panel */}
           <div className="mb-5 bg-panel border border-line rounded-control p-3.5 flex items-start gap-3 shadow-sm text-left">
             <div className="w-6 h-6 rounded-full bg-tint text-brand-fg flex items-center justify-center shrink-0 mt-0.5">
@@ -741,6 +778,58 @@ export default function Login() {
           <span>v2.4 - Sistem Terverifikasi IATA</span>
         </div>
       </div>
+
+      {/* ─── MODAL: AKUN BELUM TERDAFTAR ─── */}
+      {showNotFoundModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn">
+          <div className="bg-panel border border-line rounded-ticket max-w-md w-full p-6 sm:p-7 shadow-2xl relative animate-scaleIn text-left">
+            <button
+              type="button"
+              onClick={() => setShowNotFoundModal(false)}
+              className="absolute top-4 right-4 text-subtle hover:text-ink w-8 h-8 rounded-full flex items-center justify-center hover:bg-tint transition-colors"
+              aria-label="Tutup"
+            >
+              <span className="material-symbols-outlined text-[20px]">close</span>
+            </button>
+
+            <div className="w-14 h-14 rounded-full bg-amber-500/15 text-amber-500 flex items-center justify-center mb-4 shadow-sm">
+              <span className="material-symbols-outlined text-[30px]">person_search</span>
+            </div>
+
+            <span className="text-[11px] font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">
+              Pemberitahuan Akun
+            </span>
+            <h3 className="text-xl font-bold text-ink mt-1">
+              Akun Belum Terdaftar
+            </h3>
+
+            <p className="text-sm text-subtle mt-2.5 leading-relaxed">
+              Email <strong className="text-ink font-semibold break-all">{email}</strong> belum terdaftar di sistem SkyBook. Silakan daftarkan akun baru Anda terlebih dahulu untuk melanjutkan pemesanan tiket penerbangan.
+            </p>
+
+            <div className="mt-6 flex flex-col sm:flex-row gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowNotFoundModal(false)
+                  navigate(`/register?email=${encodeURIComponent(email)}`)
+                }}
+                className="flex-1 h-11 px-4 rounded-control bg-brand hover:bg-brand-hover hover:shadow-md hover:shadow-brand/25 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-sm transition-all duration-150 active:scale-[0.98]"
+              >
+                <span>Daftar Akun Baru</span>
+                <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowNotFoundModal(false)}
+                className="h-11 px-4 rounded-control border border-line hover:bg-tint text-subtle hover:text-ink font-semibold text-sm transition-colors"
+              >
+                Coba Lagi
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

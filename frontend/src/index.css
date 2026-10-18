@@ -123,6 +123,15 @@ body {
   100% { transform: translateX(150%); }
 }
 
+@keyframes bob {
+  0%, 100% { transform: translateY(0) translateX(-50%); }
+  50% { transform: translateY(-4px) translateX(-50%); }
+}
+
+.animate-bob {
+  animation: bob 2.2s ease-in-out infinite;
+}
+
 @keyframes floatSmooth {
   0%, 100% {
     transform: translateY(0px) rotate(-2deg);

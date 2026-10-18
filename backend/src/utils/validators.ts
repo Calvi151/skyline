@@ -18,6 +18,7 @@ export const loginSchema = z.object({
 
 export const googleAuthSchema = z.object({
   credential: z.string().min(1, 'Credential token Google tidak boleh kosong'),
+  mode: z.enum(['login', 'register']).optional().default('login'),
 })
 
 export const verifyEmailSchema = z.object({
