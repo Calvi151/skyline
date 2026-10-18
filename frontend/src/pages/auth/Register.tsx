@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import { GoogleLogin, CredentialResponse } from '@react-oauth/google'
 import ThemeToggle from '../../components/common/ThemeToggle'
@@ -22,6 +22,8 @@ export default function Register() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [showAlreadyRegisteredModal, setShowAlreadyRegisteredModal] = useState(false)
+  const [registeredEmail, setRegisteredEmail] = useState('')
 
   // Interactive seat preview toggle state
   const [selectedSeats, setSelectedSeats] = useState<string[]>(['14A', '15C'])
@@ -38,6 +40,19 @@ export default function Register() {
     (hasMinLength ? 1 : 0) +
     (hasLetters ? 1 : 0) +
     (hasNumbersOrSymbols ? 1 : 0)
+
+  // Keyboard accessibility for modal
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        setShowAlreadyRegisteredModal(false)
+      }
+    }
+    if (showAlreadyRegisteredModal) {
+      window.addEventListener('keydown', handleKeyDown)
+    }
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [showAlreadyRegisteredModal])
 
   const toggleSeat = (seatId: string) => {
     setSelectedSeats((prev) =>
@@ -96,9 +111,19 @@ export default function Register() {
         setErrorMessage(response.data.message || 'Registrasi gagal. Silakan coba lagi.')
       }
     } catch (err: any) {
+      const status = err.response?.status
+      const code = err.response?.data?.code
       const serverMsg = err.response?.data?.message
-      if (err.response?.status === 409 || serverMsg?.toLowerCase().includes('terdaftar')) {
-        setErrorMessage('Email ini sudah terdaftar. Silakan masuk atau gunakan email lain.')
+      const targetEmail = err.response?.data?.email || email.trim().toLowerCase()
+
+      if (
+        status === 409 ||
+        code === 'EMAIL_ALREADY_REGISTERED' ||
+        (serverMsg && serverMsg.toLowerCase().includes('terdaftar'))
+      ) {
+        setRegisteredEmail(targetEmail)
+        setShowAlreadyRegisteredModal(true)
+        setErrorMessage(null)
       } else if (serverMsg) {
         setErrorMessage(serverMsg)
       } else {
@@ -127,9 +152,19 @@ export default function Register() {
       setUser(userData)
       navigate('/dashboard')
     } catch (err: any) {
+      const status = err.response?.status
+      const code = err.response?.data?.code
       const serverMsg = err.response?.data?.message
-      if (err.response?.status === 409 || serverMsg?.toLowerCase().includes('terdaftar')) {
-        setErrorMessage('Akun dengan email Google ini sudah terdaftar. Silakan masuk melalui halaman login.')
+      const targetEmail = err.response?.data?.email || ''
+
+      if (
+        status === 409 ||
+        code === 'EMAIL_ALREADY_REGISTERED' ||
+        (serverMsg && serverMsg.toLowerCase().includes('terdaftar'))
+      ) {
+        setRegisteredEmail(targetEmail)
+        setShowAlreadyRegisteredModal(true)
+        setErrorMessage(null)
       } else {
         setErrorMessage(
           serverMsg || 'Gagal mendaftar dengan akun Google.'
@@ -946,6 +981,91 @@ export default function Register() {
           <span>v2.4 - Sistem Terverifikasi IATA</span>
         </div>
       </div>
+
+      {/* ─── MODAL: AKUN SUDAH TERDAFTAR ─── */}
+      {showAlreadyRegisteredModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-fadeIn"
+          onClick={() => setShowAlreadyRegisteredModal(false)}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="modal-registered-title"
+        >
+          <div
+            className="bg-panel border border-line rounded-ticket max-w-md w-full p-6 sm:p-7 shadow-2xl relative animate-scaleIn text-left select-text"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Close Button */}
+            <button
+              type="button"
+              onClick={() => setShowAlreadyRegisteredModal(false)}
+              className="absolute top-4 right-4 text-subtle hover:text-ink w-8 h-8 rounded-full flex items-center justify-center hover:bg-tint transition-colors"
+              aria-label="Tutup"
+            >
+              <span className="material-symbols-outlined text-[20px]">close</span>
+            </button>
+
+            {/* Header Icon with Aviation Badge */}
+            <div className="w-14 h-14 rounded-full bg-brand-fg/15 text-brand-fg flex items-center justify-center mb-4 shadow-sm border border-brand-fg/20">
+              <span className="material-symbols-outlined text-[30px]">how_to_reg</span>
+            </div>
+
+            {/* Micro Badge */}
+            <div className="flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-wider text-brand-fg font-mono">
+              <span className="w-1.5 h-1.5 rounded-full bg-brand-fg animate-pulse" />
+              <span>Sistem Reservasi • Akun Terdaftar</span>
+            </div>
+
+            {/* Headline */}
+            <h3 id="modal-registered-title" className="text-xl font-bold text-ink mt-1 font-sans tracking-tight">
+              Akun Sudah Terdaftar
+            </h3>
+
+            {/* Description */}
+            <p className="text-sm text-subtle mt-2.5 leading-relaxed">
+              Email{' '}
+              <strong className="text-ink font-semibold break-all font-mono bg-page px-2 py-0.5 rounded border border-line">
+                {registeredEmail || email}
+              </strong>{' '}
+              sudah memiliki akun aktif di SkyBook.
+            </p>
+
+            {/* Aviation Boarding Info Notice */}
+            <div className="mt-4 p-3.5 rounded-control bg-page/80 border border-line flex items-start gap-3 text-xs text-subtle">
+              <span className="material-symbols-outlined text-[18px] text-brand-fg shrink-0 mt-0.5">
+                flight_takeoff
+              </span>
+              <p className="leading-relaxed text-ink/90">
+                Anda tidak perlu mendaftar ulang. Silakan masuk untuk mengakses tiket, memilih kursi, atau mengelola reservasi penerbangan Anda.
+              </p>
+            </div>
+
+            {/* Actions */}
+            <div className="mt-6 flex flex-col sm:flex-row gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setShowAlreadyRegisteredModal(false)
+                  navigate(`/login?email=${encodeURIComponent(registeredEmail || email)}`)
+                }}
+                className="flex-1 h-11 px-4 rounded-control bg-brand hover:bg-brand-hover hover:shadow-md hover:shadow-brand/25 text-white font-semibold text-sm flex items-center justify-center gap-2 shadow-sm transition-all duration-150 active:scale-[0.98] group"
+              >
+                <span>Masuk Sekarang</span>
+                <span className="material-symbols-outlined text-[16px] group-hover:translate-x-1 transition-transform duration-200">
+                  arrow_forward
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setShowAlreadyRegisteredModal(false)}
+                className="h-11 px-4 rounded-control border border-line hover:bg-tint text-subtle hover:text-ink font-semibold text-sm transition-colors"
+              >
+                Gunakan Email Lain
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

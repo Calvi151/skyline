@@ -69,8 +69,9 @@ authRoute.post('/register', async (c) => {
     return c.json(
       {
         error: true,
-        message: 'Email sudah terdaftar',
+        message: 'Email sudah terdaftar. Silakan masuk dengan akun Anda.',
         code: 'EMAIL_ALREADY_REGISTERED',
+        email,
       },
       409,
     )
@@ -355,6 +356,7 @@ authRoute.post('/google', async (c) => {
         error: true,
         message: 'Email Google ini sudah terdaftar. Silakan masuk melalui halaman login.',
         code: 'EMAIL_ALREADY_REGISTERED',
+        email: googleData.email,
       },
       409,
     )
