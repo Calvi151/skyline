@@ -4,6 +4,9 @@ import Landing from '../pages/customer/Landing'
 import CheckIn from '../pages/customer/CheckIn'
 import CustomerDashboard from '../pages/customer/CustomerDashboard'
 import AdminDashboard from '../pages/admin/Dashboard'
+import AirportsPage from '../pages/admin/Airports'
+import AirlinesPage from '../pages/admin/Airlines'
+import AirplanesPage from '../pages/admin/Airplanes'
 import StaffDashboard from '../pages/staff/Dashboard'
 import Login from '../pages/auth/Login'
 import Register from '../pages/auth/Register'
@@ -84,8 +87,11 @@ export default function AppRouter() {
         {/* Customer */}
         <Route path="/dashboard" element={<CustomerDashboard />} />
 
-        {/* Admin */}
+        {/* Admin - Master Data (Phase 2 & B14 Stitch Design) */}
         <Route path="/admin" element={<AdminDashboard />} />
+        <Route path="/admin/airports" element={<AirportsPage />} />
+        <Route path="/admin/airlines" element={<AirlinesPage />} />
+        <Route path="/admin/airplanes" element={<AirplanesPage />} />
 
         {/* Staff */}
         <Route path="/staff" element={<StaffDashboard />} />

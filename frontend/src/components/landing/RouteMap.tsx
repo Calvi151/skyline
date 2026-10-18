@@ -14,7 +14,7 @@ export default function RouteMap({ highlightedRoute }: RouteMapProps) {
   const isCgkKno = highlightedRoute === 'CGK-KNO'
 
   return (
-    <div className="relative flex items-center justify-center min-h-[360px] select-none w-full">
+    <div className="relative flex flex-col items-center justify-center min-h-[360px] select-none w-full">
       <div className="w-full relative h-[340px] flex items-center justify-center">
         <svg
           className="w-full h-full"
@@ -237,19 +237,19 @@ export default function RouteMap({ highlightedRoute }: RouteMapProps) {
             Makassar
           </text>
         </svg>
+      </div>
 
-        {/* Floating Mini Boarding Pass - Overlapping bottom-left */}
-        <div className="absolute bottom-1 left-2 sm:left-6 z-10">
-          <FloatingPass
-            flightNumber="GA-402"
-            origin="CGK"
-            destination="DPS"
-            departureTime="07.40"
-            arrivalTime="10.30"
-            seatNumber="14A"
-            zone="ZONA 2"
-          />
-        </div>
+      {/* Floating Mini Boarding Pass - Below map, slightly overlapping bottom edge */}
+      <div className="relative -mt-8 self-start ml-2 sm:ml-6 z-10">
+        <FloatingPass
+          flightNumber="GA-402"
+          origin="CGK"
+          destination="DPS"
+          departureTime="07.40"
+          arrivalTime="10.30"
+          seatNumber="14A"
+          zone="ZONA 2"
+        />
       </div>
     </div>
   )

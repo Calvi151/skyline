@@ -4,6 +4,9 @@ import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import authRoute from './routes/auth.route.js'
 import bookingsRoute from './routes/customer/bookings.route.js'
+import airportsRoute from './routes/admin/airports.route.js'
+import airlinesRoute from './routes/admin/airlines.route.js'
+import airplanesRoute from './routes/admin/airplanes.route.js'
 
 const app = new Hono()
 
@@ -21,6 +24,11 @@ app.get('/', (c) => c.json({ error: false, data: { message: 'SkyBook API' } }))
 // Mount API routes
 app.route('/api/auth', authRoute)
 app.route('/api/bookings', bookingsRoute)
+
+// Admin Master Data Routes (Phase 2)
+app.route('/api/admin/airports', airportsRoute)
+app.route('/api/admin/airlines', airlinesRoute)
+app.route('/api/admin/airplanes', airplanesRoute)
 
 // 404 handler
 app.notFound((c) => {

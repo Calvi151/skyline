@@ -105,3 +105,24 @@ export const requireVerifiedEmail = createMiddleware<{
   }
   await next()
 })
+
+export const requireRole = (...allowedRoles: Array<'admin' | 'staff' | 'customer'>) =>
+  createMiddleware<{
+    Variables: {
+      user: UserContext
+      userId: number
+    }
+  }>(async (c, next) => {
+    const user = c.get('user')
+    if (!user || !allowedRoles.includes(user.role)) {
+      return c.json(
+        {
+          error: true,
+          message: 'Akses ditolak. Anda tidak memiliki izin untuk tindakan ini.',
+          code: 'FORBIDDEN',
+        },
+        403,
+      )
+    }
+    await next()
+  })

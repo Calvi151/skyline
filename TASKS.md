@@ -23,9 +23,9 @@ Urutan desain dan implementasi halaman: lihat `STITCH_PROMPT.md` (hanya untuk me
 - [x] Tema terang dan gelap: CSS variables, ThemeToggle, themeStore, skrip anti-kedip di index.html, cek kontras di kedua tema
 
 ## Phase 2: Admin - Master Data (Week 2)
-- [ ] CRUD API: airports, airlines, airplanes
-- [ ] CRUD UI: Admin pages untuk airports, airlines, airplanes (table + form)
-- [ ] Validasi input (zod) di setiap endpoint
+- [x] CRUD API: airports, airlines, airplanes
+- [x] CRUD UI: Admin pages untuk airports, airlines, airplanes (table + form)
+- [x] Validasi input (zod) di setiap endpoint
 
 ## Phase 3: Admin - Flight Schedule (Week 3)
 - [ ] CRUD API: flight_schedules + flight_segments (support transit)
