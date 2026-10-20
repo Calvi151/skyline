@@ -28,8 +28,8 @@ Catatan revisi data real (lihat PRD bagian 8): tugas tambahan ditandai "(revisi 
 - [x] CRUD API: airports, airlines, airplanes
 - [x] CRUD UI: Admin pages untuk airports, airlines, airplanes (table + form)
 - [x] Validasi input (zod) di setiap endpoint
-- [ ] (revisi data real) Migrasi baru: kolom airports.timezone (nullable). Patch CRUD airports dan GET /api/airports agar menerima dan mengembalikan `timezone` (opsional, fallback tampilan Asia/Jakarta)
-- [ ] (revisi data real) Script seed:reference: bandara dan maskapai dari dataset terbuka + satu pesawat default per maskapai, idempotent (DAT-01, DAT-05)
+- [x] (revisi data real) Migrasi baru: kolom airports.timezone (nullable). Patch CRUD airports dan GET /api/airports agar menerima dan mengembalikan `timezone` (opsional, fallback tampilan Asia/Jakarta)
+- [x] (revisi data real) Script seed:reference: bandara dan maskapai dari dataset terbuka + satu pesawat default per maskapai, idempotent (DAT-01, DAT-05)
 
 ## Phase 3: Admin - Flight Schedule (Week 3)
 - [x] CRUD API: flight_schedules + flight_segments (support transit)
@@ -37,11 +37,11 @@ Catatan revisi data real (lihat PRD bagian 8): tugas tambahan ditandai "(revisi 
 - [x] CRUD API: baggage_options + endpoint publik GET /api/airports dan /api/baggage-options
 - [ ] UI: Form create flight schedule (dynamic segment input untuk transit)
 - [ ] UI: List & manage flight schedules (revisi data real: teks kecil "Impor API" untuk jadwal source api, dan dialog "Ubah status" dengan opsi tertunda + menit keterlambatan)
-- [ ] (revisi data real) Migrasi baru: flight_schedules (source, external_ref, delay_minutes, status_synced_at, created_by jadi nullable, unique index parsial), refunds.kind, tabel flight_notifications, provider_usage, provider_cache
-- [ ] (revisi data real) Patch API jadwal yang sudah ada: GET /api/admin/flights menyertakan source, status, delay_minutes; PUT /api/admin/flights/:id menerima status dan delay_minutes (ADM-10), dan memblokir perubahan harga, pesawat, segmen jika sudah ada booking
-- [ ] (revisi data real) Lapisan provider: interface FlightDataProvider, adapter AeroDataBox, cache, penjaga kuota (DAT-02, DAT-07, DAT-08)
-- [ ] (revisi data real) Script uji cakupan: panggil provider untuk 3-5 rute Indonesia dan catat hasilnya sebelum membangun impor
-- [ ] (revisi data real) Job import-schedules (reuse fungsi auto-generate seats yang sudah ada) + endpoint admin POST /api/admin/provider/import dan GET /api/admin/provider/usage (DAT-03, DAT-04)
+- [x] (revisi data real) Migrasi baru: flight_schedules (source, external_ref, delay_minutes, status_synced_at, created_by jadi nullable, unique index parsial), refunds.kind, tabel flight_notifications, provider_usage, provider_cache
+- [x] (revisi data real) Patch API jadwal yang sudah ada: GET /api/admin/flights menyertakan source, status, delay_minutes; PUT /api/admin/flights/:id menerima status dan delay_minutes (ADM-10), dan memblokir perubahan harga, pesawat, segmen jika sudah ada booking
+- [x] (revisi data real) Lapisan provider: interface FlightDataProvider, adapter AeroDataBox, cache, penjaga kuota (DAT-02, DAT-07, DAT-08)
+- [x] (revisi data real) Script uji cakupan: panggil provider untuk 3-5 rute Indonesia dan catat hasilnya sebelum membangun impor
+- [x] (revisi data real) Job import-schedules (reuse fungsi auto-generate seats yang sudah ada) + endpoint admin POST /api/admin/provider/import dan GET /api/admin/provider/usage (DAT-03, DAT-04)
 
 ## Phase 4: Landing Page, Customer - Search & Booking (Week 4)
 - [x] API: GET /api/routes/popular

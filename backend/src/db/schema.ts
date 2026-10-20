@@ -11,7 +11,10 @@ import {
   pgEnum,
   unique,
   index,
+  uniqueIndex,
+  jsonb,
 } from 'drizzle-orm/pg-core'
+import { sql } from 'drizzle-orm'
 
 export const roleEnum = pgEnum('role', ['admin', 'staff', 'customer'])
 export const flightTypeEnum = pgEnum('flight_type', ['direct', 'transit'])
@@ -22,6 +25,12 @@ export const genderEnum = pgEnum('gender', ['male', 'female'])
 export const paymentStatusEnum = pgEnum('payment_status', ['pending', 'success', 'failed'])
 export const checkinStatusEnum = pgEnum('checkin_status', ['checked_in', 'boarded', 'no_show'])
 export const refundStatusEnum = pgEnum('refund_status', ['pending', 'approved', 'rejected', 'refunded'])
+
+// Enums baru untuk revisi data real
+export const scheduleSourceEnum = pgEnum('schedule_source', ['manual', 'api'])
+export const refundKindEnum = pgEnum('refund_kind', ['customer', 'flight_cancelled'])
+export const notificationKindEnum = pgEnum('notification_kind', ['delay', 'cancel'])
+export const notificationStatusEnum = pgEnum('notification_status', ['sent', 'failed'])
 
 export const users = pgTable('users', {
   id: serial('id').primaryKey(),
@@ -57,6 +66,7 @@ export const airports = pgTable('airports', {
   name: varchar('name', { length: 100 }).notNull(),
   city: varchar('city', { length: 100 }).notNull(),
   country: varchar('country', { length: 100 }).notNull(),
+  timezone: varchar('timezone', { length: 50 }),
 })
 
 export const airlines = pgTable('airlines', {
@@ -75,18 +85,30 @@ export const airplanes = pgTable('airplanes', {
   totalSeatBusiness: integer('total_seat_business').default(0),
 })
 
-export const flightSchedules = pgTable('flight_schedules', {
-  id: serial('id').primaryKey(),
-  flightNumber: varchar('flight_number', { length: 20 }).notNull(),
-  airlineId: integer('airline_id').references(() => airlines.id),
-  airplaneId: integer('airplane_id').references(() => airplanes.id),
-  flightType: flightTypeEnum('flight_type').notNull(),
-  priceEconomy: decimal('price_economy', { precision: 12, scale: 2 }).notNull(),
-  priceBusiness: decimal('price_business', { precision: 12, scale: 2 }),
-  status: flightStatusEnum('status').default('scheduled'),
-  createdBy: integer('created_by').references(() => users.id),
-  createdAt: timestamp('created_at').defaultNow(),
-})
+export const flightSchedules = pgTable(
+  'flight_schedules',
+  {
+    id: serial('id').primaryKey(),
+    flightNumber: varchar('flight_number', { length: 20 }).notNull(),
+    airlineId: integer('airline_id').references(() => airlines.id),
+    airplaneId: integer('airplane_id').references(() => airplanes.id),
+    flightType: flightTypeEnum('flight_type').notNull(),
+    priceEconomy: decimal('price_economy', { precision: 12, scale: 2 }).notNull(),
+    priceBusiness: decimal('price_business', { precision: 12, scale: 2 }),
+    status: flightStatusEnum('status').default('scheduled'),
+    createdBy: integer('created_by').references(() => users.id),
+    source: scheduleSourceEnum('source').notNull().default('manual'),
+    externalRef: varchar('external_ref', { length: 100 }),
+    delayMinutes: integer('delay_minutes').notNull().default(0),
+    statusSyncedAt: timestamp('status_synced_at'),
+    createdAt: timestamp('created_at').defaultNow(),
+  },
+  (t) => ({
+    uniqSourceExtRef: uniqueIndex('uniq_flight_sched_source_ext_ref')
+      .on(t.source, t.externalRef)
+      .where(sql`${t.externalRef} IS NOT NULL`),
+  }),
+)
 
 export const flightSegments = pgTable('flight_segments', {
   id: serial('id').primaryKey(),
@@ -169,4 +191,56 @@ export const refunds = pgTable('refunds', {
   processedBy: integer('processed_by').references(() => users.id),
   requestedAt: timestamp('requested_at').defaultNow(),
   processedAt: timestamp('processed_at'),
+  kind: refundKindEnum('kind').notNull().default('customer'),
 })
+
+// ─── Tabel Baru: flight_notifications (mencatat notifikasi delay/cancel agar tidak terkirim dobel) ───
+export const flightNotifications = pgTable(
+  'flight_notifications',
+  {
+    id: serial('id').primaryKey(),
+    bookingId: integer('booking_id')
+      .notNull()
+      .references(() => bookings.id, { onDelete: 'cascade' }),
+    flightScheduleId: integer('flight_schedule_id')
+      .notNull()
+      .references(() => flightSchedules.id, { onDelete: 'cascade' }),
+    kind: notificationKindEnum('kind').notNull(),
+    delayMinutes: integer('delay_minutes').notNull().default(0),
+    emailStatus: notificationStatusEnum('email_status').notNull(),
+    sentAt: timestamp('sent_at').defaultNow(),
+  },
+  (t) => ({
+    uniqNotification: unique().on(t.bookingId, t.kind, t.delayMinutes),
+  }),
+)
+
+// ─── Tabel Baru: provider_usage (pelacak pemakaian kuota API per bulan) ───
+export const providerUsage = pgTable(
+  'provider_usage',
+  {
+    id: serial('id').primaryKey(),
+    provider: varchar('provider', { length: 30 }).notNull(),
+    period: varchar('period', { length: 7 }).notNull(), // format YYYY-MM
+    unitsUsed: integer('units_used').notNull().default(0),
+    updatedAt: timestamp('updated_at').defaultNow(),
+  },
+  (t) => ({
+    uniqProviderPeriod: unique().on(t.provider, t.period),
+  }),
+)
+
+// ─── Tabel Baru: provider_cache (cache respons API provider agar kuota hemat) ───
+export const providerCache = pgTable(
+  'provider_cache',
+  {
+    id: serial('id').primaryKey(),
+    cacheKey: varchar('cache_key', { length: 200 }).unique().notNull(),
+    payload: jsonb('payload').notNull(),
+    fetchedAt: timestamp('fetched_at').notNull(),
+    expiresAt: timestamp('expires_at').notNull(),
+  },
+  (t) => ({
+    expiresAtIdx: index('provider_cache_expires_at_idx').on(t.expiresAt),
+  }),
+)

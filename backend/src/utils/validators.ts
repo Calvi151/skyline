@@ -35,6 +35,7 @@ export const airportSchema = z.object({
   name: z.string().trim().min(2, 'Nama bandara minimal 2 karakter').max(100),
   city: z.string().trim().min(2, 'Nama kota minimal 2 karakter').max(100),
   country: z.string().trim().min(2, 'Nama negara minimal 2 karakter').max(100),
+  timezone: z.string().trim().max(50).optional().nullable(),
 })
 
 // ─── Master Data: Airlines ───
@@ -138,10 +139,28 @@ export const flightScheduleSchema = z
     },
   )
 
-export const flightScheduleUpdateSchema = z.object({
-  flight_number: z.string().trim().min(2).max(20).toUpperCase().optional(),
-  price_economy: z.coerce.number().positive().optional(),
-  price_business: z.coerce.number().min(0).optional().nullable(),
-  status: z.enum(['scheduled', 'delayed', 'cancelled']).optional(),
-})
+export const flightScheduleUpdateSchema = z
+  .object({
+    flight_number: z.string().trim().min(2).max(20).toUpperCase().optional(),
+    airline_id: z.coerce.number().int().positive().optional(),
+    airplane_id: z.coerce.number().int().positive().optional(),
+    flight_type: z.enum(['direct', 'transit']).optional(),
+    price_economy: z.coerce.number().positive().optional(),
+    price_business: z.coerce.number().min(0).optional().nullable(),
+    status: z.enum(['scheduled', 'delayed', 'cancelled']).optional(),
+    delay_minutes: z.coerce.number().int().min(0).optional().nullable(),
+    segments: z.array(flightSegmentInputSchema).min(1).optional(),
+  })
+  .refine(
+    (data) => {
+      if (data.status === 'delayed' && (data.delay_minutes === undefined || data.delay_minutes === null || data.delay_minutes <= 0)) {
+        return false
+      }
+      return true
+    },
+    {
+      message: 'Jika status penerbangan tertunda (delayed), delay_minutes wajib diisi lebih dari 0 menit',
+      path: ['delay_minutes'],
+    },
+  )
 

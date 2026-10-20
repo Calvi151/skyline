@@ -77,7 +77,7 @@ airportsRoute.post('/', async (c) => {
     )
   }
 
-  const { code, name, city, country } = parsed.data
+  const { code, name, city, country, timezone } = parsed.data
 
   // Cek duplikasi kode bandara
   const [existing] = await db
@@ -99,7 +99,13 @@ airportsRoute.post('/', async (c) => {
 
   const [created] = await db
     .insert(airports)
-    .values({ code, name, city, country })
+    .values({
+      code,
+      name,
+      city,
+      country,
+      timezone: timezone || null,
+    })
     .returning()
 
   return c.json(
@@ -140,7 +146,7 @@ airportsRoute.put('/:id', async (c) => {
     )
   }
 
-  const { code, name, city, country } = parsed.data
+  const { code, name, city, country, timezone } = parsed.data
 
   // Jika kode diubah, cek apakah kode baru sudah dipakai bandara lain
   if (code !== existingAirport.code) {
@@ -164,7 +170,13 @@ airportsRoute.put('/:id', async (c) => {
 
   const [updated] = await db
     .update(airports)
-    .set({ code, name, city, country })
+    .set({
+      code,
+      name,
+      city,
+      country,
+      timezone: timezone !== undefined ? timezone : existingAirport.timezone,
+    })
     .where(eq(airports.id, id))
     .returning()
 

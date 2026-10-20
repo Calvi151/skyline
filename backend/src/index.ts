@@ -10,6 +10,7 @@ import airplanesRoute from './routes/admin/airplanes.route.js'
 import flightsRoute from './routes/admin/flights.route.js'
 import baggageOptionsRoute from './routes/admin/baggage-options.route.js'
 import publicRoute from './routes/public.route.js'
+import providerRoute from './routes/admin/provider.route.js'
 
 const app = new Hono()
 
@@ -37,6 +38,7 @@ app.route('/api/admin/airlines', airlinesRoute)
 app.route('/api/admin/airplanes', airplanesRoute)
 app.route('/api/admin/flights', flightsRoute)
 app.route('/api/admin/baggage-options', baggageOptionsRoute)
+app.route('/api/admin/provider', providerRoute)
 
 // 404 handler
 app.notFound((c) => {

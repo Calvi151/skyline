@@ -16,6 +16,7 @@ import {
   flightScheduleUpdateSchema,
 } from '../../utils/validators.js'
 import { generateSeatList } from '../../services/seat-generator.service.js'
+import { flightNotificationService } from '../../services/flight-notification.service.js'
 import type { UserContext } from '../../types/index.js'
 
 const flightsRoute = new Hono<{
@@ -38,6 +39,10 @@ flightsRoute.get('/', async (c) => {
       priceEconomy: flightSchedules.priceEconomy,
       priceBusiness: flightSchedules.priceBusiness,
       status: flightSchedules.status,
+      delayMinutes: flightSchedules.delayMinutes,
+      source: flightSchedules.source,
+      externalRef: flightSchedules.externalRef,
+      statusSyncedAt: flightSchedules.statusSyncedAt,
       createdAt: flightSchedules.createdAt,
       airline: {
         id: airlines.id,
@@ -118,6 +123,10 @@ flightsRoute.get('/:id', async (c) => {
       priceEconomy: flightSchedules.priceEconomy,
       priceBusiness: flightSchedules.priceBusiness,
       status: flightSchedules.status,
+      delayMinutes: flightSchedules.delayMinutes,
+      source: flightSchedules.source,
+      externalRef: flightSchedules.externalRef,
+      statusSyncedAt: flightSchedules.statusSyncedAt,
       createdAt: flightSchedules.createdAt,
       airline: {
         id: airlines.id,
@@ -331,12 +340,39 @@ flightsRoute.put('/:id', async (c) => {
         error: true,
         message: parsed.error.errors[0]?.message || 'Data update tidak valid',
         code: 'VALIDATION_ERROR',
+        details: parsed.error.errors,
       },
       400,
     )
   }
 
-  const { flight_number, price_economy, price_business, status } = parsed.data
+  // Cek apakah jadwal sudah memiliki booking
+  const [hasBooking] = await db
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(eq(bookings.flightScheduleId, id))
+    .limit(1)
+
+  if (hasBooking) {
+    if (
+      parsed.data.price_economy !== undefined ||
+      parsed.data.price_business !== undefined ||
+      parsed.data.airplane_id !== undefined ||
+      parsed.data.segments !== undefined
+    ) {
+      return c.json(
+        {
+          error: true,
+          message:
+            'Harga, pesawat, dan segmen penerbangan tidak dapat diubah karena jadwal sudah memiliki pemesanan tiket',
+          code: 'VALIDATION_ERROR',
+        },
+        400,
+      )
+    }
+  }
+
+  const { flight_number, price_economy, price_business, status, delay_minutes } = parsed.data
   const updateData: Partial<typeof flightSchedules.$inferInsert> = {}
 
   if (flight_number !== undefined) updateData.flightNumber = flight_number
@@ -345,11 +381,29 @@ flightsRoute.put('/:id', async (c) => {
     updateData.priceBusiness = price_business ? price_business.toString() : null
   if (status !== undefined) updateData.status = status
 
+  if (delay_minutes !== undefined) {
+    updateData.delayMinutes = delay_minutes ?? 0
+  } else if (status === 'scheduled') {
+    updateData.delayMinutes = 0
+  }
+
   const [updated] = await db
     .update(flightSchedules)
     .set(updateData)
     .where(eq(flightSchedules.id, id))
     .returning()
+
+  // Memicu notifikasi email (NTF-01) jika status atau keterlambatan berubah
+  const newStatus = updated.status ?? 'scheduled'
+  const newDelay = updated.delayMinutes ?? 0
+  const oldStatus = existing.status ?? 'scheduled'
+  const oldDelay = existing.delayMinutes ?? 0
+
+  if (newStatus !== oldStatus || newDelay !== oldDelay) {
+    flightNotificationService
+      .notifyFlightScheduleChange(id, oldStatus, oldDelay, newStatus, newDelay)
+      .catch((err) => console.error('[FlightNotification] Background notify error:', err))
+  }
 
   return c.json({
     error: false,

@@ -23,6 +23,7 @@ publicRoute.get('/airports', async (c) => {
         name: airports.name,
         city: airports.city,
         country: airports.country,
+        timezone: airports.timezone,
       })
       .from(airports)
       .where(
@@ -42,6 +43,7 @@ publicRoute.get('/airports', async (c) => {
         name: airports.name,
         city: airports.city,
         country: airports.country,
+        timezone: airports.timezone,
       })
       .from(airports)
       .orderBy(asc(airports.city))

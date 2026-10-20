@@ -91,6 +91,141 @@ class EmailService {
       return false
     }
   }
+
+  async sendFlightDelayEmail(params: {
+    to: string
+    name: string
+    flightNumber: string
+    departureTime: string
+    delayMinutes: number
+    originCity: string
+    destinationCity: string
+  }): Promise<boolean> {
+    const from = process.env.EMAIL_FROM ?? 'SkyBook <no-reply@skybook.id>'
+    const appUrl = process.env.APP_URL ?? 'http://localhost:5173'
+
+    const html = `
+      <!DOCTYPE html>
+      <html lang="id">
+        <head>
+          <meta charset="UTF-8" />
+          <title>Pemberitahuan Keterlambatan Penerbangan SkyBook</title>
+          <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
+            .container { max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 32px; }
+            .badge { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 13px; font-weight: 600; background: #fef3c7; color: #92400e; margin-bottom: 12px; }
+            h2 { color: #0f172a; margin-top: 0; }
+            .info-box { background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 16px; margin: 16px 0; }
+            .btn { display: inline-block; background-color: #0284c7; color: #ffffff !important; text-decoration: none; font-weight: 600; padding: 10px 20px; border-radius: 6px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <span class="badge">Penerbangan Tertunda</span>
+            <h2>Informasi Penerbangan ${escapeHtml(params.flightNumber)}</h2>
+            <p>Halo <strong>${escapeHtml(params.name)}</strong>,</p>
+            <p>Kami menginformasikan bahwa penerbangan Anda mengalami keterlambatan.</p>
+            <div class="info-box">
+              <p><strong>Rute:</strong> ${escapeHtml(params.originCity)} &rarr; ${escapeHtml(params.destinationCity)}</p>
+              <p><strong>Jadwal Semula:</strong> ${escapeHtml(params.departureTime)}</p>
+              <p><strong>Perkiraan Keterlambatan:</strong> <span style="color: #b45309; font-weight: bold;">+${params.delayMinutes} menit</span></p>
+            </div>
+            <p>Silakan pantau status pemesanan Anda melalui website SkyBook:</p>
+            <div style="text-align: center; margin: 20px 0;">
+              <a href="${appUrl}/my-bookings" class="btn">Cek Pemesanan Saya</a>
+            </div>
+            <p style="font-size: 13px; color: #64748b;">Mohon maaf atas ketidaknyamanan yang terjadi.</p>
+          </div>
+        </body>
+      </html>
+    `
+
+    const transporter = this.getTransporter()
+    if (!transporter) {
+      console.log(`[EmailService] SMTP not configured. Flight delay email logged for ${params.to} (${params.flightNumber} +${params.delayMinutes}m)`)
+      return true
+    }
+
+    try {
+      await transporter.sendMail({
+        from,
+        to: params.to,
+        subject: `[Keterlambatan Penerbangan] ${params.flightNumber} mengalami penundaan ${params.delayMinutes} menit`,
+        html,
+      })
+      return true
+    } catch (error) {
+      console.error('[EmailService] Gagal mengirim email delay:', error)
+      return false
+    }
+  }
+
+  async sendFlightCancelledEmail(params: {
+    to: string
+    name: string
+    flightNumber: string
+    departureTime: string
+    originCity: string
+    destinationCity: string
+  }): Promise<boolean> {
+    const from = process.env.EMAIL_FROM ?? 'SkyBook <no-reply@skybook.id>'
+    const appUrl = process.env.APP_URL ?? 'http://localhost:5173'
+
+    const html = `
+      <!DOCTYPE html>
+      <html lang="id">
+        <head>
+          <meta charset="UTF-8" />
+          <title>Pemberitahuan Pembatalan Penerbangan SkyBook</title>
+          <style>
+            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f8fafc; margin: 0; padding: 24px; color: #1e293b; }
+            .container { max-width: 540px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #fee2e2; padding: 32px; }
+            .badge { display: inline-block; padding: 4px 12px; border-radius: 9999px; font-size: 13px; font-weight: 600; background: #fee2e2; color: #991b1b; margin-bottom: 12px; }
+            h2 { color: #991b1b; margin-top: 0; }
+            .info-box { background: #fff5f5; border: 1px solid #fed7d7; border-radius: 8px; padding: 16px; margin: 16px 0; }
+            .btn { display: inline-block; background-color: #dc2626; color: #ffffff !important; text-decoration: none; font-weight: 600; padding: 10px 20px; border-radius: 6px; }
+          </style>
+        </head>
+        <body>
+          <div class="container">
+            <span class="badge">Penerbangan Dibatalkan</span>
+            <h2>Penerbangan ${escapeHtml(params.flightNumber)} Dibatalkan</h2>
+            <p>Halo <strong>${escapeHtml(params.name)}</strong>,</p>
+            <p>Kami dengan berat hati menginformasikan bahwa jadwal penerbangan berikut telah <strong>dibatalkan</strong>:</p>
+            <div class="info-box">
+              <p><strong>Penerbangan:</strong> ${escapeHtml(params.flightNumber)}</p>
+              <p><strong>Rute:</strong> ${escapeHtml(params.originCity)} &rarr; ${escapeHtml(params.destinationCity)}</p>
+              <p><strong>Jadwal:</strong> ${escapeHtml(params.departureTime)}</p>
+            </div>
+            <p>Sesuai kebijakan penerbangan, Anda berhak mengajukan <strong>Pengembalian Dana (Refund 100%)</strong> tanpa potongan biaya pembatalan.</p>
+            <div style="text-align: center; margin: 20px 0;">
+              <a href="${appUrl}/refund" class="btn">Ajukan Pengembalian Dana</a>
+            </div>
+            <p style="font-size: 13px; color: #64748b;">Silakan ajukan refund langsung melalui tautan di atas atau halaman Akun Saya.</p>
+          </div>
+        </body>
+      </html>
+    `
+
+    const transporter = this.getTransporter()
+    if (!transporter) {
+      console.log(`[EmailService] SMTP not configured. Flight cancel email logged for ${params.to} (${params.flightNumber})`)
+      return true
+    }
+
+    try {
+      await transporter.sendMail({
+        from,
+        to: params.to,
+        subject: `[PENTING] Pembatalan Penerbangan ${params.flightNumber} - Hak Refund Penuh`,
+        html,
+      })
+      return true
+    } catch (error) {
+      console.error('[EmailService] Gagal mengirim email pembatalan:', error)
+      return false
+    }
+  }
 }
 
 function escapeHtml(text: string): string {

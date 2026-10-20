@@ -10,7 +10,9 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "seed:reference": "tsx src/db/seed-reference.ts",
+    "test:coverage": "tsx src/scripts/test-coverage.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",
