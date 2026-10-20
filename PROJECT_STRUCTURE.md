@@ -1,45 +1,46 @@
-# Project Structure - SkyBook
+# Project Structure - SkyBook v2.0
 
-Monorepo dengan 2 folder utama: `frontend` dan `backend`.
+Monorepo dengan 2 folder utama: frontend dan backend.
 
-```
 skybook/
 ├── frontend/
 │   ├── src/
 │   │   ├── assets/
 │   │   ├── components/
-│   │   │   ├── ui/                    # shadcn components (di-style ulang sesuai DESIGN_SYSTEM.md)
-│   │   │   ├── common/                # AirportCode, RouteLine, TicketPanel, StatusChip,
-│   │   │   │                          # PriceText, TimeText, DurationText, EmptyState, ErrorState,
-│   │   │   │                          # ThemeToggle, FloatingPass
-│   │   │   ├── layout/                # PublicLayout, CustomerLayout, AuthLayout, AdminLayout, StaffLayout, Footer
-│   │   │   ├── landing/               # RouteMap, SearchPanel, PopularRoutes, HowItWorks, SeatShowcase, KeyRules, FaqSection
-│   │   │   ├── auth/                  # GoogleSignInButton, EmailVerificationBanner, BrandPanel, PasswordChecklist
-│   │   │   ├── booking/               # SeatMap, FlightRow, FilterBar, PassengerForm
-│   │   │   └── admin/                 # DataTablePage (generik), forms, tables
+│   │   │   ├── ui/                      # shadcn components
+│   │   │   ├── common/                  # Navbar, Footer, Sidebar, Loader
+│   │   │   ├── booking/
+│   │   │   │   ├── FlightCard.tsx
+│   │   │   │   ├── FilterSidebar.tsx
+│   │   │   │   ├── SeatMap.tsx
+│   │   │   │   ├── PriceBreakdown.tsx   # transparent price breakdown
+│   │   │   │   └── PassengerForm.tsx
+│   │   │   ├── maps/
+│   │   │   │   └── RouteMap.tsx         # Google Maps component
+│   │   │   └── admin/
+│   │   │       ├── PriceSettingForm.tsx
+│   │   │       ├── BaggageTable.tsx
+│   │   │       ├── UserTable.tsx
+│   │   │       └── RefundTable.tsx
 │   │   ├── pages/
 │   │   │   ├── auth/
-│   │   │   │   ├── Login.tsx              # email+password dan Google
-│   │   │   │   ├── Register.tsx
-│   │   │   │   ├── CheckEmail.tsx         # setelah daftar: cek email + kirim ulang
-│   │   │   │   └── VerifyEmail.tsx        # halaman tujuan tautan verifikasi
+│   │   │   │   ├── Login.tsx
+│   │   │   │   └── Register.tsx
 │   │   │   ├── customer/
-│   │   │   │   ├── Landing.tsx            # landing page publik + search hero
-│   │   │   │   ├── SearchResults.tsx
-│   │   │   │   ├── BookingDetail.tsx      # detail flight + data penumpang + seat map + bagasi
-│   │   │   │   ├── Checkout.tsx
-│   │   │   │   ├── PaymentResult.tsx
+│   │   │   │   ├── Home.tsx             # search form
+│   │   │   │   ├── SearchResults.tsx    # real data dari Amadeus
+│   │   │   │   ├── FlightDetail.tsx     # + Google Maps route
+│   │   │   │   ├── SeatSelection.tsx
+│   │   │   │   ├── Checkout.tsx         # price breakdown
+│   │   │   │   ├── PaymentCallback.tsx
 │   │   │   │   ├── MyBookings.tsx
-│   │   │   │   ├── BookingTicket.tsx      # e-ticket + ajukan refund
-│   │   │   │   └── CheckIn.tsx            # check-in + boarding pass
+│   │   │   │   ├── BookingDetail.tsx
+│   │   │   │   ├── CheckIn.tsx
+│   │   │   │   └── RefundRequest.tsx
 │   │   │   ├── admin/
 │   │   │   │   ├── Dashboard.tsx
-│   │   │   │   ├── Airports.tsx
-│   │   │   │   ├── Airlines.tsx
-│   │   │   │   ├── Airplanes.tsx
+│   │   │   │   ├── PriceSettings.tsx    # markup configuration
 │   │   │   │   ├── BaggageOptions.tsx
-│   │   │   │   ├── Flights.tsx
-│   │   │   │   ├── FlightForm.tsx
 │   │   │   │   ├── Users.tsx
 │   │   │   │   └── Refunds.tsx
 │   │   │   └── staff/
@@ -48,25 +49,24 @@ skybook/
 │   │   │       └── ScanBoarding.tsx
 │   │   ├── hooks/
 │   │   │   ├── useAuth.ts
-│   │   │   ├── useFlightSearch.ts
-│   │   │   └── useCountdown.ts        # batas bayar 1 jam, hitung mundur check-in
+│   │   │   ├── useFlightSearch.ts       # consume Amadeus proxy endpoint
+│   │   │   └── useGoogleMaps.ts
 │   │   ├── store/
-│   │   │   ├── authStore.ts           # Zustand store
-│   │   │   ├── themeStore.ts          # tema light | dark | system
-│   │   │   └── bookingStore.ts        # state alur booking multi-step
+│   │   │   ├── authStore.ts
+│   │   │   └── bookingDraftStore.ts     # simpan state booking sementara
 │   │   ├── lib/
-│   │   │   ├── api.ts                 # axios/fetch instance
+│   │   │   ├── api.ts
+│   │   │   ├── googleMaps.ts            # loader Google Maps script
 │   │   │   └── utils.ts
-│   │   ├── content/
-│   │   │   └── faq.ts                 # konten FAQ statis
 │   │   ├── types/
-│   │   │   └── index.ts               # shared TypeScript types
+│   │   │   └── index.ts
 │   │   ├── routes/
 │   │   │   ├── AppRouter.tsx
 │   │   │   ├── ProtectedRoute.tsx
 │   │   │   └── RoleRoute.tsx
 │   │   ├── App.tsx
 │   │   └── main.tsx
+│   ├── .env.example                     # VITE_GOOGLE_MAPS_API_KEY, dll
 │   ├── index.html
 │   ├── vite.config.ts
 │   ├── tailwind.config.ts
@@ -75,51 +75,49 @@ skybook/
 ├── backend/
 │   ├── src/
 │   │   ├── db/
-│   │   │   ├── schema.ts              # Drizzle schema definitions
-│   │   │   ├── index.ts               # DB connection
+│   │   │   ├── schema.ts
+│   │   │   ├── index.ts
+│   │   │   ├── seed/
+│   │   │   │   ├── airlines.seed.ts     # import dari OpenFlights dataset
+│   │   │   │   ├── aircraft.seed.ts     # kapasitas kursi per tipe pesawat
+│   │   │   │   └── airports.seed.ts     # bandara populer Indonesia (awal)
 │   │   │   └── migrations/
 │   │   ├── routes/
 │   │   │   ├── auth.route.ts
+│   │   │   ├── airports.route.ts        # proxy + cache Amadeus
+│   │   │   ├── flights.route.ts         # search, confirm-price
+│   │   │   ├── maps.route.ts            # route info untuk Google Maps
+│   │   │   ├── bookings.route.ts
+│   │   │   ├── checkin.route.ts
+│   │   │   ├── refunds.route.ts
+│   │   │   ├── payment.route.ts
 │   │   │   ├── admin/
-│   │   │   │   ├── airports.route.ts
-│   │   │   │   ├── airlines.route.ts
-│   │   │   │   ├── airplanes.route.ts
-│   │   │   │   ├── baggage-options.route.ts
-│   │   │   │   ├── flights.route.ts
+│   │   │   │   ├── price-settings.route.ts
+│   │   │   │   ├── baggage.route.ts
 │   │   │   │   ├── users.route.ts
-│   │   │   │   ├── dashboard.route.ts
-│   │   │   │   └── refunds.route.ts
-│   │   │   ├── public.route.ts        # /api/airports, /api/baggage-options, /api/routes/popular
-│   │   │   ├── customer/
-│   │   │   │   ├── flights.route.ts
-│   │   │   │   ├── bookings.route.ts
-│   │   │   │   ├── checkin.route.ts
-│   │   │   │   └── refunds.route.ts
-│   │   │   ├── staff/
-│   │   │   │   ├── flights.route.ts   # daftar penerbangan hari ini
-│   │   │   │   └── manifest.route.ts  # manifest + verify boarding + update status
-│   │   │   └── payment.route.ts
+│   │   │   │   ├── refunds.route.ts
+│   │   │   │   └── dashboard.route.ts
+│   │   │   └── staff/
+│   │   │       └── manifest.route.ts
 │   │   ├── middleware/
-│   │   │   ├── auth.middleware.ts     # JWT verify
-│   │   │   └── role.middleware.ts     # RBAC check
+│   │   │   ├── auth.middleware.ts
+│   │   │   └── role.middleware.ts
 │   │   ├── services/
+│   │   │   ├── amadeus.service.ts       # OAuth token, search, price confirm
+│   │   │   ├── airline-reference.service.ts
+│   │   │   ├── seatmap.service.ts       # generate simulasi seat map
 │   │   │   ├── midtrans.service.ts
-│   │   │   ├── google.service.ts      # verifikasi ID token Google
-│   │   │   ├── email.service.ts       # Nodemailer + template email verifikasi
-│   │   │   ├── verification.service.ts # buat/validasi token verifikasi, rate limit kirim ulang
-│   │   │   ├── pdf.service.ts         # generate e-ticket/boarding pass
+│   │   │   ├── pdf.service.ts
 │   │   │   ├── qrcode.service.ts
-│   │   │   ├── booking.service.ts     # business logic + transaction
-│   │   │   ├── checkin.service.ts     # validasi H-24 jam, ganti kursi
-│   │   │   └── refund.service.ts      # validasi H-6 jam, hitung refund
-│   │   ├── jobs/
-│   │   │   └── expire-bookings.ts     # cron: auto-cancel booking pending > 1 jam
+│   │   │   ├── pricing.service.ts       # hitung markup + tax
+│   │   │   └── booking.service.ts
 │   │   ├── utils/
-│   │   │   ├── generateCode.ts        # booking_code, boarding_pass_code
-│   │   │   └── validators.ts          # zod schemas
+│   │   │   ├── generateCode.ts
+│   │   │   ├── validators.ts
+│   │   │   └── cache.ts                 # simple in-memory/DB cache helper
 │   │   ├── types/
 │   │   │   └── index.ts
-│   │   └── index.ts                   # Hono app entry point
+│   │   └── index.ts
 │   ├── drizzle.config.ts
 │   ├── .env.example
 │   └── package.json
@@ -130,15 +128,30 @@ skybook/
 │   ├── API_SPEC.md
 │   ├── PROJECT_STRUCTURE.md
 │   ├── DESIGN_SYSTEM.md
-│   ├── TASKS.md
-│   ├── STITCH_PROMPT.md       # hanya untuk membuat desain di Stitch, tidak wajib dibaca agent
-│   └── PAGE_PROMPTS.md
+│   ├── PAGE_PROMPTS.md
+│   └── TASKS.md
 │
 └── README.md
-```
+
+## Environment Variables Overview
+
+### backend/.env
+DATABASE_URL=
+JWT_SECRET=
+AMADEUS_API_KEY=
+AMADEUS_API_SECRET=
+AMADEUS_BASE_URL=https://test.api.amadeus.com
+MIDTRANS_SERVER_KEY=
+MIDTRANS_CLIENT_KEY=
+MIDTRANS_IS_PRODUCTION=false
+
+### frontend/.env
+VITE_API_BASE_URL=http://localhost:3000
+VITE_GOOGLE_MAPS_API_KEY=
 
 ## Konvensi Penamaan
-- File component React: PascalCase (`FlightRow.tsx`)
-- File route backend: kebab-case + `.route.ts`
-- Database table: snake_case, plural (`flight_schedules`)
-- API endpoint: kebab-case, plural (`/api/admin/baggage-options`)
+- File component React: PascalCase (FlightCard.tsx)
+- File route backend: kebab-case + .route.ts
+- File service backend: kebab-case + .service.ts
+- Database table: snake_case, plural (flight_snapshots)
+- API endpoint: kebab-case, plural (/api/admin/baggage-options)

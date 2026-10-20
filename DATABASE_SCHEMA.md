@@ -39,6 +39,7 @@ Index: (user_id, created_at) untuk membatasi kirim ulang.
 | name | varchar(100) | not null |
 | city | varchar(100) | not null |
 | country | varchar(100) | not null |
+| timezone | varchar(50) | nullable (zona waktu IANA, mis. Asia/Jakarta; dari dataset seed) |
 
 ### airlines
 | Column | Type | Constraint |
@@ -69,8 +70,14 @@ Index: (user_id, created_at) untuk membatasi kirim ulang.
 | price_economy | decimal(12,2) | not null |
 | price_business | decimal(12,2) | nullable |
 | status | enum('scheduled','delayed','cancelled') | default 'scheduled' |
-| created_by | int | FK -> users.id |
+| created_by | int | FK -> users.id, nullable (null untuk hasil impor job) |
+| source | enum('manual','api') | not null, default 'manual' |
+| external_ref | varchar(100) | nullable (kunci dari provider: nomor penerbangan + tanggal berangkat lokal + asal) |
+| delay_minutes | int | not null, default 0 |
+| status_synced_at | timestamp | nullable (terakhir status disinkronkan dari provider) |
 | created_at | timestamp | default now() |
+
+Unique index parsial: (source, external_ref) where external_ref is not null (membuat impor idempotent).
 
 ### flight_segments
 | Column | Type | Constraint |
@@ -160,6 +167,45 @@ UNIQUE constraint: (flight_schedule_id, seat_number)
 | processed_by | int | FK -> users.id, nullable |
 | requested_at | timestamp | default now() |
 | processed_at | timestamp | nullable |
+| kind | enum('customer','flight_cancelled') | not null, default 'customer' |
+
+### flight_notifications
+Mencatat email delay/cancel yang sudah dikirim agar tidak terkirim dobel.
+| Column | Type | Constraint |
+|---|---|---|
+| id | serial | PK |
+| booking_id | int | FK -> bookings.id |
+| flight_schedule_id | int | FK -> flight_schedules.id |
+| kind | enum('delay','cancel') | not null |
+| delay_minutes | int | not null, default 0 (0 untuk cancel) |
+| email_status | enum('sent','failed') | not null |
+| sent_at | timestamp | default now() |
+
+UNIQUE constraint: (booking_id, kind, delay_minutes). Keterlambatan yang bertambah minimal 30 menit menghasilkan baris baru dan email baru.
+
+### provider_usage
+Penghitung pemakaian kuota API gratis per bulan.
+| Column | Type | Constraint |
+|---|---|---|
+| id | serial | PK |
+| provider | varchar(30) | not null (mis. 'aerodatabox') |
+| period | char(7) | not null (format YYYY-MM) |
+| units_used | int | not null, default 0 |
+| updated_at | timestamp | default now() |
+
+UNIQUE constraint: (provider, period).
+
+### provider_cache
+Cache respons provider supaya kuota hemat.
+| Column | Type | Constraint |
+|---|---|---|
+| id | serial | PK |
+| cache_key | varchar(200) | unique, not null (mis. `schedule:CGK:2026-10-21`, `status:GA404:2026-10-21`) |
+| payload | jsonb | not null |
+| fetched_at | timestamp | not null |
+| expires_at | timestamp | not null |
+
+Index: expires_at (untuk pembersihan cache kedaluwarsa).
 
 ## Relations Summary
 - users 1---N bookings
@@ -178,6 +224,8 @@ UNIQUE constraint: (flight_schedule_id, seat_number)
 - booking_passengers 1---0..1 seats (assigned)
 - booking_passengers 1---0..1 check_ins
 - booking_passengers N---1 baggage_options
+- bookings 1---N flight_notifications
+- flight_schedules 1---N flight_notifications
 
 ## Important Notes for Implementation
 1. Seat locking: gunakan DB transaction dengan `SELECT ... FOR UPDATE` saat proses booking
@@ -191,3 +239,10 @@ UNIQUE constraint: (flight_schedule_id, seat_number)
 6. Akun Google: `email_verified_at` diisi saat pembuatan jika klaim `email_verified` dari Google bernilai true.
 7. Akun staff buatan admin: isi `email_verified_at` saat pembuatan.
 8. seat_id di booking_passengers nullable karena bisa diisi saat booking ATAU saat check-in.
+9. Impor jadwal harus idempotent: upsert berdasarkan (source, external_ref). Jika jadwal sudah punya booking, impor tidak boleh mengubah harga, pesawat, atau kursi. Perubahan jam dari provider dicatat sebagai `delay_minutes`, bukan dengan menimpa `departure_time` asli.
+10. Jadwal hasil impor memakai pesawat default per maskapai (registration_number berpola `DEFAULT-<kode maskapai>`), dan kursinya digenerate lewat kode yang sama dengan ADM-07 dalam satu transaksi.
+11. Semua timestamp disimpan UTC. Tampilan memakai `airports.timezone` bandara terkait; jika null (mis. bandara buatan admin) pakai Asia/Jakarta.
+12. Perkiraan jam berangkat saat tertunda = `departure_time` segmen pertama + `delay_minutes`. Batas check-in H-24 jam dan batas refund H-6 jam tetap dihitung dari `departure_time` asli, kecuali refund karena penerbangan dibatalkan (RFD-05) yang tidak memakai batas H-6.
+13. Refund dengan `kind = 'flight_cancelled'` memakai `refund_amount` = `bookings.total_price` dan `reason` otomatis jika customer tidak mengisi.
+14. Bersihkan `provider_cache` yang `expires_at`-nya sudah lewat lewat job harian.
+15. Semua perubahan di dokumen ini yang datang setelah migrasi awal dibuat sebagai migrasi baru, jangan mengedit migrasi awal. Kolom baru nullable atau punya default, dan `flight_schedules.created_by` diubah menjadi nullable, jadi data lama tetap aman.

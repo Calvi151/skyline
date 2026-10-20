@@ -5,6 +5,8 @@ SkyBook adalah sistem ticketing pesawat online dengan 3 role (Admin, Staff Maska
 Fitur utama: search & booking tiket, payment gateway, e-ticket generation, self check-in,
 dukungan penerbangan direct & transit, serta sistem refund.
 
+**Sumber data penerbangan:** jadwal dan status penerbangan bisa berasal dari data real lewat API pihak ketiga (paket gratis, hasilnya disimpan di database). Harga, kursi, booking, pembayaran, e-tiket, check-in, dan refund sepenuhnya dikelola sistem sendiri. Detail dan batasan ada di bagian 8.
+
 Platform: **aplikasi web** (desktop-first, responsif ke tablet dan mobile). Tidak ada aplikasi native di v1.
 
 ## 2. Tech Stack
@@ -17,6 +19,9 @@ Platform: **aplikasi web** (desktop-first, responsif ke tablet dan mobile). Tida
 - Payment: Midtrans Snap (Sandbox)
 - PDF: pdf-lib
 - QR Code: qrcode (npm)
+- Data penerbangan real: AeroDataBox (paket gratis, lewat API.Market atau RapidAPI) di balik adapter provider yang bisa diganti
+- Data referensi: dataset terbuka OpenFlights / OurAirports untuk seed bandara dan maskapai (sekali jalan, tanpa API)
+- Scheduler: node-cron (dipakai untuk auto-cancel PAY-04, impor jadwal, sinkron status)
 - Styling: Tailwind CSS + shadcn/ui
 - State: Zustand + TanStack Query
 
@@ -31,6 +36,7 @@ Platform: **aplikasi web** (desktop-first, responsif ke tablet dan mobile). Tida
 - Kelola user & role
 - Approve/reject refund
 - Lihat dashboard & laporan
+- Memicu impor jadwal dan sinkron status secara manual lewat endpoint admin (tanpa halaman khusus di v1)
 
 ### Staff Maskapai
 - Lihat manifest penumpang per jadwal
@@ -45,6 +51,7 @@ Platform: **aplikasi web** (desktop-first, responsif ke tablet dan mobile). Tida
 - Self check-in (H-24 jam sebelum keberangkatan)
 - Ajukan refund
 - Lihat riwayat booking & download e-ticket
+- Menerima email jika penerbangan yang dipesan tertunda atau dibatalkan
 
 ## 4. Functional Requirements
 
@@ -77,11 +84,30 @@ Platform: **aplikasi web** (desktop-first, responsif ke tablet dan mobile). Tida
 - ADM-07: Auto-generate seats berdasarkan kapasitas airplane saat flight schedule dibuat
 - ADM-08: CRUD baggage_options (name, weight_kg, price)
 - ADM-09: Approve/reject refund request
+- ADM-10: Ubah status jadwal (scheduled/delayed/cancelled) dan `delay_minutes` secara manual; perubahan memicu notifikasi (NTF-01)
+
+### Data Penerbangan (Provider)
+Prinsip: pencarian customer **hanya membaca database**, tidak pernah memanggil API eksternal. Semua panggilan provider terjadi di job terjadwal atau endpoint admin.
+- DAT-01: Seed awal `airports` dan `airlines` dari dataset terbuka lewat script (`seed:reference`). Cakup bandara Indonesia dan bandara internasional utama saja agar tabel ringan, termasuk zona waktu bandara. Data tetap bisa diubah lewat CRUD ADM-01 dan ADM-02.
+- DAT-02: Adapter provider (interface `FlightDataProvider`) dengan dua operasi: ambil jadwal per bandara dan rentang tanggal, serta ambil status per nomor penerbangan dan tanggal. Implementasi awal AeroDataBox. Mengganti provider tidak boleh mengubah route atau service lain.
+- DAT-03: Job impor jadwal (harian dini hari, bisa dipicu admin). Rute yang diimpor dan jumlah hari ke depan diatur lewat env (`PROVIDER_IMPORT_ROUTES`, `PROVIDER_IMPORT_DAYS_AHEAD`, default 7). Hasil impor menjadi `flight_schedules` dengan `source = 'api'` dan satu segmen (penerbangan direct). Penerbangan transit tetap dibuat admin manual.
+- DAT-04: Harga jadwal hasil impor dihitung dengan rumus simulasi yang deterministik (dasar + durasi + faktor jam berangkat, parameter di env) dan bisa diubah admin. Penerbangan yang sudah punya booking tidak pernah diubah harga, pesawat, atau kursinya oleh impor.
+- DAT-05: Tiap maskapai hasil seed punya satu pesawat default (kapasitas dari env) supaya kursi bisa digenerate otomatis dengan alur yang sama seperti ADM-07.
+- DAT-06: Job sinkron status (tiap 30 menit): hanya untuk jadwal `source = 'api'` yang berangkat dalam 24 jam ke depan dan sudah punya booking berstatus paid. Memperbarui `status` dan `delay_minutes`. Jadwal manual tidak disinkronkan.
+- DAT-07: Penjaga kuota: tiap panggilan dicatat di `provider_usage`; panggilan dihentikan saat pemakaian bulan berjalan mencapai 90% dari `PROVIDER_MONTHLY_LIMIT`. Respons di-cache di `provider_cache` (TTL jadwal 12 jam, status 15 menit).
+- DAT-08: Degradasi halus: jika provider gagal atau kuota habis, sistem memakai data yang sudah tersimpan. Pencarian, booking, dan pembayaran tidak boleh ikut gagal.
+
+### Fitur Pembeda
+- NTF-01: Email otomatis ke pemilik booking berstatus paid saat jadwal menjadi `delayed` (keterlambatan minimal `DELAY_NOTIFY_MIN_MINUTES`, default 15) atau `cancelled`. Satu email per perubahan; keterlambatan lanjutan hanya diemail ulang jika bertambah minimal 30 menit. Kegagalan kirim tidak boleh menggagalkan sinkron status.
+- NTF-02: Penerbangan `cancelled` tidak muncul di hasil pencarian, booking baru ditolak (`FLIGHT_CANCELLED`), dan check-in ditolak.
+- CAL-01: Kalender harga: harga ekonomi atau bisnis termurah per tanggal (7 hari di sekitar tanggal terpilih), dihitung dari database. Dipakai date strip di hasil pencarian.
+- VAL-01: Skor nilai 0 sampai 100 per hasil pencarian, rumus transparan dan relatif terhadap hasil pencarian yang sama: harga 50%, durasi 30%, jam berangkat 10%, kualitas transit 10%. Dipakai untuk sort "Terbaik".
+- VAL-02: Peringatan transit: `short` jika transit kurang dari 60 menit, `long` jika lebih dari 360 menit.
 
 ### Customer - Search & Booking
 - CUS-01: Search flight (origin, destination, date, jumlah penumpang)
 - CUS-02: Filter hasil (price, direct/transit, airline, waktu keberangkatan)
-- CUS-03: Sort hasil (termurah, tercepat)
+- CUS-03: Sort hasil (termurah, tercepat, terbaik)
 - CUS-04: Pilih flight + kelas kursi
 - CUS-05: Pilih kursi spesifik (seat map) - optional step
 - CUS-06: Pilih baggage add-on
@@ -107,6 +133,7 @@ Platform: **aplikasi web** (desktop-first, responsif ke tablet dan mobile). Tida
 - RFD-02: Refund hanya bisa diajukan sebelum H-6 jam keberangkatan
 - RFD-03: Status refund: pending -> approved/rejected -> refunded
 - RFD-04: Admin dapat approve/reject dari dashboard
+- RFD-05: Jika penerbangan dibatalkan (`cancelled`), refund boleh diajukan kapan saja sebelum keberangkatan tanpa batas H-6 jam, jumlah refund penuh, alasan terisi otomatis. Tetap melewati persetujuan admin.
 
 ### Staff
 - STF-01: Lihat manifest penumpang per flight_schedule_id
@@ -124,12 +151,16 @@ Platform: **aplikasi web** (desktop-first, responsif ke tablet dan mobile). Tida
 - UI web desktop-first, responsif sampai mobile (breakpoint Tailwind)
 - Dua tema, terang dan gelap: default mengikuti pengaturan perangkat, pilihan pengguna disimpan di browser, kontras teks minimal WCAG AA di kedua tema
 - Desain mengikuti `DESIGN_SYSTEM.md` (biru langit sebagai warna utama, aksen tunggal coral, tanpa kombinasi biru-emas)
+- Tampilan tidak berubah: penambahan akibat revisi data real hanya berupa teks, ikon, dan satu opsi sort memakai komponen dan token yang sudah ada
+- Endpoint publik tidak boleh memanggil API eksternal; kunci API provider hanya di env backend
+- Patuhi syarat penggunaan provider (termasuk aturan caching); cakupan rute Indonesia diuji dulu sebelum impor dibangun
 
 ## 6. Priority (MoSCoW)
 
 ### Must Have
 - Auth JWT multi-role, login Google, verifikasi email
-- CRUD master data (admin)
+- CRUD master data (admin) dan seed bandara dan maskapai (DAT-01)
+- Adapter provider, impor jadwal, penjaga kuota, dan degradasi halus (DAT-02 sampai DAT-08)
 - Search & booking flow
 - Payment gateway integration
 - E-ticket generation
@@ -139,27 +170,43 @@ Platform: **aplikasi web** (desktop-first, responsif ke tablet dan mobile). Tida
 ### Should Have
 - Filter & sorting
 - Baggage add-on
-- Refund system
+- Refund system (termasuk RFD-05)
 - Admin dashboard/reporting
+- Sinkron status real dan notifikasi delay/cancel (DAT-06, NTF-01, NTF-02)
+- Kalender harga (CAL-01)
+- Skor nilai dan peringatan transit (VAL-01, VAL-02)
 
 ### Could Have
 - Email notifikasi lain (e-ticket, pengingat check-in)
 - Reset kata sandi lewat email
 - Reschedule tiket
+- Price alert lewat email
+- Estimasi emisi karbon per penerbangan
+- E-tiket dan boarding pass offline (PWA)
 
 ### Won't Have (v1)
 - Mobile native app
 - Live chat
 - Multi-currency
+- Harga dan penerbitan tiket asli dari maskapai atau GDS
+- Halaman admin khusus untuk impor dan sinkron provider
 
 ## 7. Timeline (8 Weeks)
 | Week | Focus |
 |---|---|
 | 1 | Setup project, design tokens, Auth (JWT, Google, verifikasi email) |
-| 2 | Admin: CRUD master data |
-| 3 | Admin: Flight schedule + transit + seat generation |
-| 4 | Landing page + Customer: Search, filter, booking flow |
+| 2 | Admin: CRUD master data + seed bandara dan maskapai (DAT-01) |
+| 3 | Admin: Flight schedule + transit + seat generation; adapter provider, impor jadwal, cache, dan kuota (DAT-02 sampai DAT-05, DAT-07, DAT-08) |
+| 4 | Landing page + Customer: Search, filter, kalender harga, skor nilai, booking flow |
 | 5 | Payment integration + E-ticket generation |
-| 6 | Self check-in + Boarding pass |
-| 7 | Staff module + Refund module |
+| 6 | Self check-in + Boarding pass; job sinkron status (DAT-06) |
+| 7 | Staff module + Refund module; notifikasi delay/cancel dan refund penerbangan dibatalkan (NTF-01, NTF-02, RFD-05) |
 | 8 | Testing, bug fixing, polish |
+
+## 8. Sumber Data dan Batasan
+- **Data real:** bandara, maskapai (dataset terbuka), serta jadwal dan status penerbangan (provider API gratis). Kuota gratis kecil, jadi semua data di-cache dan hanya diambil lewat job.
+- **Dikelola sistem sendiri:** harga, kursi, booking, pembayaran (Midtrans Sandbox), e-tiket, boarding pass, check-in, refund.
+- **Harga adalah simulasi.** Tidak ada API gratis untuk harga dan pemesanan tiket asli, jadi harga hasil impor dihitung dengan rumus (DAT-04) dan perlu disebut sebagai simulasi saat demo atau dokumentasi.
+- **E-tiket bukan tiket resmi maskapai.** Sistem ini tidak menerbitkan tiket ke maskapai atau GDS.
+- **Cakupan data tidak dijamin.** Cakupan jadwal dan status provider per negara bersifat best-effort; uji rute Indonesia sebelum membangun impor. Jika cakupan kurang, jadwal dibuat admin manual dan sisanya tetap berjalan.
+- **Fitur kandidat yang ditunda:** price alert, estimasi emisi karbon, dan PWA offline (lihat Could Have).

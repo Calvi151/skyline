@@ -57,7 +57,7 @@ Tanpa auth. Dipakai form pencarian dan halaman booking.
 
 ### GET /api/airports
 Query: `q` (optional, cari kode/kota)
-Response: `[{ id, code, name, city, country }]`
+Response: `[{ id, code, name, city, country, timezone }]` (`timezone` bisa null; tampilan memakai Asia/Jakarta jika null)
 
 ### GET /api/baggage-options
 Response: `[{ id, name, weight_kg, price }]`
@@ -85,13 +85,13 @@ Response:
 Auth: required, role: admin
 
 ### GET /api/admin/airports
-Response: `[{ id, code, name, city, country }]`
+Response: `[{ id, code, name, city, country, timezone }]`
 
 ### POST /api/admin/airports
-Body: `{ code, name, city, country }`
+Body: `{ code, name, city, country, timezone? }`
 
 ### PUT /api/admin/airports/:id
-Body: `{ code, name, city, country }`
+Body: `{ code, name, city, country, timezone? }`
 
 ### DELETE /api/admin/airports/:id
 
@@ -114,7 +114,7 @@ Body: `{ airline_id, registration_number, model, total_seat_economy, total_seat_
 ## Admin - Flight Schedules
 
 ### GET /api/admin/flights
-Response: list jadwal dengan join airline, airplane
+Response: list jadwal dengan join airline, airplane. Setiap item menyertakan `source` (`manual` | `api`), `status`, dan `delay_minutes`.
 
 ### POST /api/admin/flights
 Body:
@@ -149,7 +149,10 @@ Note: Saat create, backend otomatis generate records di tabel `seats`
 berdasarkan `total_seat_economy` + `total_seat_business` dari airplane terkait.
 
 ### PUT /api/admin/flights/:id
+Body: field jadwal seperti POST, semuanya optional, ditambah `status` (`scheduled` | `delayed` | `cancelled`) dan `delay_minutes` (wajib lebih dari 0 jika `status = delayed`).
+Perubahan `status` atau `delay_minutes` memicu notifikasi email (NTF-01). Jika jadwal sudah punya booking, harga, pesawat, dan segmen tidak boleh diubah (error `VALIDATION_ERROR` dengan penjelasan).
 ### DELETE /api/admin/flights/:id
+Diblokir jika sudah ada booking.
 
 ---
 
@@ -212,7 +215,9 @@ Body: `{ status: "approved" | "rejected" }`
 
 ### GET /api/flights/search
 Query params: `origin, destination, date, passengers, flight_type, sort` dan `class` (optional, `economy` | `business`).
-Filter harga, maskapai, dan jam berangkat dilakukan di client dari hasil satu tanggal (sort `price` atau `duration` dilakukan di server lewat `sort`).
+`sort`: `price` (termurah), `duration` (tercepat), atau `value` (terbaik, berdasarkan `value_score`).
+Filter harga, maskapai, dan jam berangkat dilakukan di client dari hasil satu tanggal.
+Hanya membaca database (tidak memanggil provider). Penerbangan berstatus `cancelled` tidak ikut dikembalikan.
 Response:
 ```json
 [
@@ -221,18 +226,40 @@ Response:
     "flight_number": "GA-123",
     "airline": { "name": "Garuda", "logo": "..." },
     "flight_type": "direct",
+    "status": "delayed",
+    "delay_minutes": 25,
     "segments": [...],
     "price_economy": 1500000,
     "price_business": 3000000,
     "available_seats_economy": 45,
-    "available_seats_business": 8
+    "available_seats_business": 8,
+    "value_score": 82,
+    "layover_warning": null
   }
 ]
 ```
+- `status`: `scheduled` | `delayed`. `delay_minutes` 0 jika tidak tertunda. Perkiraan jam berangkat = berangkat segmen pertama + `delay_minutes` (dihitung client).
+- `value_score`: 0 sampai 100, relatif terhadap hasil pencarian yang sama. Bobot: harga 50%, durasi 30%, jam berangkat 10%, kualitas transit 10% (penerbangan direct mendapat nilai penuh untuk transit).
+- `layover_warning`: `null` | `"short"` (transit kurang dari 60 menit) | `"long"` (lebih dari 360 menit). Untuk penerbangan transit dengan beberapa transit, nilai diambil dari transit yang paling bermasalah.
+
+### GET /api/flights/price-calendar
+Dipakai date strip di hasil pencarian. Dihitung dari database. Letakkan route ini sebelum `/api/flights/:id`.
+Query: `origin, destination, date` (tanggal terpilih), `passengers` (default 1), `class` (`economy` | `business`, default `economy`), `days` (default 7, maks 14; jendela di sekitar `date`).
+Hanya menghitung penerbangan yang tidak `cancelled` dan masih punya kursi cukup untuk `passengers`.
+Response:
+```json
+[
+  { "date": "2026-10-13", "lowest_price": 1286000 },
+  { "date": "2026-10-14", "lowest_price": 1350000 },
+  { "date": "2026-10-15", "lowest_price": null }
+]
+```
+`lowest_price` bernilai `null` jika tidak ada penerbangan yang tersedia di tanggal itu.
 
 ### GET /api/flights/:id
 Response: detail 1 flight schedule lengkap dengan segments dan daftar kursi untuk seat map:
-`{ ..., seats: [{ id, seat_number, seat_class, is_available }] }`
+`{ ..., status, delay_minutes, status_synced_at, seats: [{ id, seat_number, seat_class, is_available }] }`
+Penerbangan `cancelled` tetap bisa dibuka lewat endpoint ini (untuk halaman booking lama), tetapi tidak bisa dibooking.
 
 ---
 
@@ -260,6 +287,7 @@ Response: `{ id, booking_code, total_price, status: "pending", created_at, expir
 
 Note: endpoint ini harus pakai DB transaction untuk lock seat yang dipilih.
 Syarat: email customer sudah terverifikasi, jika belum kembalikan 403 `EMAIL_NOT_VERIFIED`.
+Penerbangan berstatus `cancelled` ditolak dengan 409 `FLIGHT_CANCELLED`.
 
 ### GET /api/bookings/my
 Auth: required
@@ -292,6 +320,7 @@ Action: update `payments.payment_status` dan `bookings.status`
 ### POST /api/check-in/:bookingId
 Body: `{ passenger_id, seat_id (optional, jika ganti kursi) }`
 Response: `{ boarding_pass_code, qr_code_url }`
+Error: `CHECKIN_NOT_OPEN`, `ALREADY_CHECKED_IN`, `SEAT_NOT_AVAILABLE`, `FLIGHT_CANCELLED` (penerbangan dibatalkan). Penerbangan tertunda tetap bisa check-in; waktu H-24 dihitung dari jadwal asli.
 
 ### GET /api/check-in/:bookingId/boarding-pass
 Response: PDF boarding pass
@@ -302,7 +331,9 @@ Response: PDF boarding pass
 
 ### POST /api/refunds
 Body: `{ booking_id, reason }`
-Response: `{ id, status: "pending" }`
+Response: `{ id, status: "pending", kind, refund_amount }`
+- Normal (`kind: "customer"`): hanya sebelum H-6 jam keberangkatan, `reason` wajib (error `REFUND_WINDOW_CLOSED` jika lewat).
+- Penerbangan dibatalkan (`kind: "flight_cancelled"`): boleh diajukan kapan saja sebelum keberangkatan, tanpa batas H-6 jam. `reason` boleh kosong (server mengisi "Penerbangan dibatalkan maskapai"). `refund_amount` = total harga booking. Tetap berstatus `pending` sampai admin memproses.
 
 ### GET /api/refunds/my
 Response: list refund milik user
@@ -329,6 +360,47 @@ Body: `{ status: "boarded" | "no_show" }`
 
 ---
 
+## Data Provider dan Jobs (internal)
+Bukan endpoint publik. Endpoint publik tidak pernah memanggil provider; hanya job dan endpoint admin di bawah ini.
+
+### Adapter provider
+Interface `FlightDataProvider`:
+- `getAirportSchedules(airportCode, fromLocal, toLocal)` mengembalikan daftar penerbangan (nomor penerbangan, maskapai, asal, tujuan, jam berangkat dan tiba, status).
+- `getFlightStatus(flightNumber, dateLocal)` mengembalikan status, keterlambatan, dan jam estimasi.
+Implementasi awal: AeroDataBox. Baca dokumentasi resminya untuk nama endpoint dan field, jangan menebak. Semua panggilan melewati lapisan cache (`provider_cache`) dan penjaga kuota (`provider_usage`).
+
+### Jobs (node-cron)
+| Job | Jadwal | Isi |
+|---|---|---|
+| import-schedules | harian, dini hari | Ambil jadwal untuk `PROVIDER_IMPORT_ROUTES` selama `PROVIDER_IMPORT_DAYS_AHEAD` hari. Upsert `flight_schedules` (`source = 'api'`) dengan harga rumus simulasi dan kursi otomatis. |
+| sync-status | tiap 30 menit | Untuk jadwal `source = 'api'` yang berangkat dalam 24 jam dan punya booking paid: perbarui `status` dan `delay_minutes`, lalu kirim notifikasi jika berubah. |
+| cleanup-cache | harian | Hapus `provider_cache` yang kedaluwarsa. |
+Semua job berhenti memanggil provider jika pemakaian bulan ini mencapai 90% dari `PROVIDER_MONTHLY_LIMIT`. Jika provider gagal, catat error dan lanjutkan dengan data tersimpan.
+
+### Admin - Provider
+Auth: required, role: admin. Tanpa halaman khusus di v1 (dipanggil lewat Postman atau curl).
+
+#### POST /api/admin/provider/import
+Body (optional): `{ routes?: ["CGK-DPS"], days_ahead?: 7 }`
+Response: `{ created, updated, skipped, units_used }`
+Error: `PROVIDER_QUOTA_EXCEEDED`, `PROVIDER_UNAVAILABLE`
+
+#### POST /api/admin/provider/sync-status
+Body (optional): `{ flight_schedule_id? }`
+Response: `{ checked, changed, notified, units_used }`
+Error: `PROVIDER_QUOTA_EXCEEDED`, `PROVIDER_UNAVAILABLE`
+
+#### GET /api/admin/provider/usage
+Response: `{ provider, period, units_used, monthly_limit, percent }`
+
+### Email penerbangan tertunda dan dibatalkan
+- Dikirim lewat SMTP (Nodemailer) ke pemilik booking berstatus paid, Bahasa Indonesia, sapaan nama.
+- Tertunda: subjek "Penerbangan {nomor} tertunda {N} menit". Isi: jadwal awal, perkiraan jam berangkat baru, satu tombol "Lihat pesanan" (`${APP_URL}/bookings/:id`).
+- Dibatalkan: subjek "Penerbangan {nomor} dibatalkan". Isi: penjelasan singkat, informasi bahwa refund penuh bisa diajukan, satu tombol "Ajukan refund" (`${APP_URL}/bookings/:id`).
+- Dedupe lewat tabel `flight_notifications`. Kegagalan kirim dicatat dan tidak menggagalkan job.
+
+---
+
 ## Standard Error Response Format
 ```json
 {
@@ -344,7 +416,8 @@ Body: `{ status: "boarded" | "no_show" }`
 `TOKEN_INVALID`, `TOKEN_EXPIRED`, `RESEND_TOO_SOON`, `RESEND_LIMIT_REACHED`, `USE_GOOGLE_SIGNIN`,
 `GOOGLE_TOKEN_INVALID`, `GOOGLE_EMAIL_NOT_VERIFIED`, `GOOGLE_NOT_ALLOWED_FOR_ROLE`,
 `BOOKING_EXPIRED`, `CHECKIN_NOT_OPEN`, `ALREADY_CHECKED_IN`, `REFUND_WINDOW_CLOSED`,
-`CANNOT_MODIFY_SELF`, `BOARDING_CODE_NOT_FOUND`, `ALREADY_BOARDED`, `WRONG_FLIGHT`
+`CANNOT_MODIFY_SELF`, `BOARDING_CODE_NOT_FOUND`, `ALREADY_BOARDED`, `WRONG_FLIGHT`,
+`FLIGHT_CANCELLED`, `PROVIDER_UNAVAILABLE`, `PROVIDER_QUOTA_EXCEEDED`
 
 ## Standard Success Response Format
 ```json

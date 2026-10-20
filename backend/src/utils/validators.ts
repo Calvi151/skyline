@@ -69,3 +69,79 @@ export const airplaneSchema = z.object({
     .min(0, 'Kapasitas kursi bisnis minimal 0')
     .default(0),
 })
+
+// ─── Master Data: Baggage Options ───
+export const baggageOptionSchema = z.object({
+  name: z.string().trim().min(2, 'Nama opsi bagasi minimal 2 karakter').max(50),
+  weight_kg: z.coerce.number().int().min(1, 'Berat bagasi minimal 1 kg'),
+  price: z.coerce.number().min(0, 'Harga bagasi tidak boleh negatif'),
+})
+
+// ─── Flight Schedule & Segments ───
+export const flightSegmentInputSchema = z.object({
+  segment_order: z.coerce.number().int().min(1, 'Urutan segmen minimal 1'),
+  origin_airport_id: z.coerce.number().int().positive('Bandara asal wajib dipilih'),
+  destination_airport_id: z.coerce.number().int().positive('Bandara tujuan wajib dipilih'),
+  departure_time: z.string().refine((val) => !isNaN(Date.parse(val)), {
+    message: 'Format waktu keberangkatan tidak valid',
+  }),
+  arrival_time: z.string().refine((val) => !isNaN(Date.parse(val)), {
+    message: 'Format waktu kedatangan tidak valid',
+  }),
+  transit_duration_minutes: z.coerce.number().int().min(0).optional().nullable(),
+})
+
+export const flightScheduleSchema = z
+  .object({
+    flight_number: z
+      .string()
+      .trim()
+      .min(2, 'Nomor penerbangan minimal 2 karakter')
+      .max(20, 'Nomor penerbangan maksimal 20 karakter')
+      .toUpperCase(),
+    airline_id: z.coerce.number().int().positive('Maskapai wajib dipilih'),
+    airplane_id: z.coerce.number().int().positive('Pesawat wajib dipilih'),
+    flight_type: z.enum(['direct', 'transit']),
+    price_economy: z.coerce.number().positive('Harga kelas ekonomi harus lebih dari 0'),
+    price_business: z.coerce.number().min(0, 'Harga kelas bisnis tidak boleh negatif').optional().nullable(),
+    status: z.enum(['scheduled', 'delayed', 'cancelled']).optional().default('scheduled'),
+    segments: z.array(flightSegmentInputSchema).min(1, 'Penerbangan harus memiliki minimal 1 segmen rute'),
+  })
+  .refine(
+    (data) => {
+      if (data.flight_type === 'direct') {
+        return data.segments.length === 1
+      }
+      return data.segments.length >= 2
+    },
+    {
+      message: 'Penerbangan langsung (direct) harus memiliki tepat 1 segmen, sedangkan transit minimal 2 segmen',
+      path: ['segments'],
+    },
+  )
+  .refine(
+    (data) => {
+      // Check segment departure < arrival
+      for (const seg of data.segments) {
+        if (new Date(seg.departure_time) >= new Date(seg.arrival_time)) {
+          return false
+        }
+        if (seg.origin_airport_id === seg.destination_airport_id) {
+          return false
+        }
+      }
+      return true
+    },
+    {
+      message: 'Waktu keberangkatan harus sebelum waktu kedatangan, dan bandara asal tidak boleh sama dengan tujuan',
+      path: ['segments'],
+    },
+  )
+
+export const flightScheduleUpdateSchema = z.object({
+  flight_number: z.string().trim().min(2).max(20).toUpperCase().optional(),
+  price_economy: z.coerce.number().positive().optional(),
+  price_business: z.coerce.number().min(0).optional().nullable(),
+  status: z.enum(['scheduled', 'delayed', 'cancelled']).optional(),
+})
+

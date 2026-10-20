@@ -2,6 +2,8 @@
 
 Urutan desain dan implementasi halaman: lihat `STITCH_PROMPT.md` (hanya untuk membuat desain di Stitch) dan `PAGE_PROMPTS.md` (kode per halaman).
 
+Catatan revisi data real (lihat PRD bagian 8): tugas tambahan ditandai "(revisi data real)". Phase 1 dan 2 yang sudah dicentang tidak diubah. Perubahan database dibuat sebagai **migrasi baru** (drizzle-kit generate), jangan mengedit migrasi awal.
+
 ## Phase 1: Setup & Auth (Week 1)
 - [x] Setup monorepo structure (frontend + backend)
 - [x] Setup Hono.js project + TypeScript config
@@ -26,21 +28,29 @@ Urutan desain dan implementasi halaman: lihat `STITCH_PROMPT.md` (hanya untuk me
 - [x] CRUD API: airports, airlines, airplanes
 - [x] CRUD UI: Admin pages untuk airports, airlines, airplanes (table + form)
 - [x] Validasi input (zod) di setiap endpoint
+- [ ] (revisi data real) Migrasi baru: kolom airports.timezone (nullable). Patch CRUD airports dan GET /api/airports agar menerima dan mengembalikan `timezone` (opsional, fallback tampilan Asia/Jakarta)
+- [ ] (revisi data real) Script seed:reference: bandara dan maskapai dari dataset terbuka + satu pesawat default per maskapai, idempotent (DAT-01, DAT-05)
 
 ## Phase 3: Admin - Flight Schedule (Week 3)
-- [ ] CRUD API: flight_schedules + flight_segments (support transit)
-- [ ] Logic auto-generate seats berdasarkan airplane capacity
-- [ ] CRUD API: baggage_options + endpoint publik GET /api/airports dan /api/baggage-options
+- [x] CRUD API: flight_schedules + flight_segments (support transit)
+- [x] Logic auto-generate seats berdasarkan airplane capacity
+- [x] CRUD API: baggage_options + endpoint publik GET /api/airports dan /api/baggage-options
 - [ ] UI: Form create flight schedule (dynamic segment input untuk transit)
-- [ ] UI: List & manage flight schedules
+- [ ] UI: List & manage flight schedules (revisi data real: teks kecil "Impor API" untuk jadwal source api, dan dialog "Ubah status" dengan opsi tertunda + menit keterlambatan)
+- [ ] (revisi data real) Migrasi baru: flight_schedules (source, external_ref, delay_minutes, status_synced_at, created_by jadi nullable, unique index parsial), refunds.kind, tabel flight_notifications, provider_usage, provider_cache
+- [ ] (revisi data real) Patch API jadwal yang sudah ada: GET /api/admin/flights menyertakan source, status, delay_minutes; PUT /api/admin/flights/:id menerima status dan delay_minutes (ADM-10), dan memblokir perubahan harga, pesawat, segmen jika sudah ada booking
+- [ ] (revisi data real) Lapisan provider: interface FlightDataProvider, adapter AeroDataBox, cache, penjaga kuota (DAT-02, DAT-07, DAT-08)
+- [ ] (revisi data real) Script uji cakupan: panggil provider untuk 3-5 rute Indonesia dan catat hasilnya sebelum membangun impor
+- [ ] (revisi data real) Job import-schedules (reuse fungsi auto-generate seats yang sudah ada) + endpoint admin POST /api/admin/provider/import dan GET /api/admin/provider/usage (DAT-03, DAT-04)
 
 ## Phase 4: Landing Page, Customer - Search & Booking (Week 4)
-- [ ] API: GET /api/routes/popular
+- [x] API: GET /api/routes/popular
 - [ ] UI: Landing page (hero + RouteMap + SearchPanel, rute populer, cara kerja, SeatShowcase, aturan penting, FAQ, footer)
-- [ ] API: flight search (filter tipe dan kelas di server, sort termurah/tercepat; filter harga, maskapai, jam berangkat di client)
-- [ ] UI: Search results page dengan filter sidebar
+- [ ] API: flight search (filter tipe dan kelas di server, sort termurah/tercepat/terbaik; filter harga, maskapai, jam berangkat di client). Revisi data real: field status, delay_minutes, value_score, layover_warning; penerbangan cancelled tidak ikut
+- [ ] (revisi data real) API: GET /api/flights/price-calendar untuk date strip (CAL-01)
+- [ ] UI: Search results page dengan filter sidebar (revisi data real: date strip dari price-calendar, sort Terbaik, teks tertunda dan peringatan transit)
 - [ ] UI: Flight detail + seat selection (seat map)
-- [ ] API: create booking (dengan DB transaction untuk lock seat)
+- [ ] API: create booking (dengan DB transaction untuk lock seat); revisi data real: tolak FLIGHT_CANCELLED
 - [ ] UI: Form data penumpang (dynamic, multi-passenger)
 - [ ] UI: Checkout summary page
 
@@ -52,30 +62,34 @@ Urutan desain dan implementasi halaman: lihat `STITCH_PROMPT.md` (hanya untuk me
 - [ ] Generate e-ticket PDF (pdf-lib) + QR code + endpoint GET /api/bookings/:id/e-ticket
 - [ ] Cron job auto-cancel booking pending > 1 jam (PAY-04)
 - [ ] UI: Payment redirect flow
-- [ ] UI: My Bookings page (list + detail + download e-ticket)
+- [ ] UI: My Bookings page (list + detail + download e-ticket); revisi data real: teks tertunda, chip dibatalkan, panel catatan di detail
 
 ## Phase 6: Self Check-in (Week 6)
 - [ ] API: check-in endpoint (confirm/ganti kursi)
 - [ ] Logic validasi waktu check-in (H-24 jam)
 - [ ] Generate boarding_pass_code + QR
 - [ ] Generate boarding pass PDF
-- [ ] UI: Check-in flow page
+- [ ] UI: Check-in flow page (revisi data real: nonaktif jika penerbangan dibatalkan, jam boarding mengikuti keterlambatan)
+- [ ] (revisi data real) Check-in menolak FLIGHT_CANCELLED
+- [ ] (revisi data real) Job sync-status tiap 30 menit + endpoint POST /api/admin/provider/sync-status (DAT-06)
 
 ## Phase 7: Staff & Refund (Week 7)
 - [ ] API: daftar penerbangan hari ini + manifest per flight (staff)
 - [ ] API: admin users (buat staff, ubah role, nonaktifkan) + admin dashboard
 - [ ] API: verify boarding (scan/input code)
 - [ ] UI: Staff dashboard + manifest page
-- [ ] API: refund request (customer) + approve/reject (admin)
-- [ ] UI: Refund request form + status tracking
+- [ ] API: refund request (customer) + approve/reject (admin); revisi data real: RFD-05 untuk penerbangan dibatalkan (tanpa batas H-6, jumlah penuh, refunds.kind)
+- [ ] UI: Refund request form + status tracking (revisi data real: varian penerbangan dibatalkan sesuai PAGE_PROMPTS B10)
+- [ ] (revisi data real) Layanan notifikasi email delay/cancel + template + dedupe flight_notifications; dipanggil dari sync-status dan dari PUT /api/admin/flights/:id (NTF-01)
 - [ ] UI: Admin refund management page
 
 ## Phase 8: Testing & Polish (Week 8)
 - [ ] End-to-end testing semua flow utama
+- [ ] (revisi data real) Tes: impor idempotent dan tidak menyentuh jadwal yang sudah dibooking; sync berhenti di 90% kuota; notifikasi tidak dobel; pencarian dan booking tetap jalan saat provider dimatikan
 - [ ] Fix bug dari testing
 - [ ] Responsive check (mobile/desktop)
 - [ ] Loading states & error handling di semua halaman
-- [ ] Dokumentasi final + persiapan demo
+- [ ] Dokumentasi final + persiapan demo (sebut jelas: harga simulasi, e-tiket bukan tiket resmi maskapai)
 
 ## Critical Technical Notes
 0. **Auth**: token verifikasi email disimpan sebagai hash dan sekali pakai; verifikasi lewat POST (bukan GET).
@@ -99,4 +113,20 @@ Urutan desain dan implementasi halaman: lihat `STITCH_PROMPT.md` (hanya untuk me
    SMTP_PASS=
    EMAIL_FROM=
    APP_URL=http://localhost:5173
+   # Data real (revisi data real)
+   PROVIDER_NAME=aerodatabox
+   PROVIDER_API_KEY=
+   PROVIDER_BASE_URL=
+   PROVIDER_MONTHLY_LIMIT=
+   PROVIDER_UNIT_COST_SCHEDULE=
+   PROVIDER_UNIT_COST_STATUS=
+   PROVIDER_IMPORT_ROUTES=CGK-DPS,CGK-SUB
+   PROVIDER_IMPORT_DAYS_AHEAD=7
+   DELAY_NOTIFY_MIN_MINUTES=15
+   PRICING_BASE=
+   PRICING_PER_MINUTE=
+   DEFAULT_AIRPLANE_SEATS_ECONOMY=
+   DEFAULT_AIRPLANE_SEATS_BUSINESS=
    ```
+4. **Provider data**: pencarian customer hanya membaca database. Semua panggilan provider lewat job atau endpoint admin, dengan cache dan penjaga kuota. Jika provider mati atau kuota habis, booking dan pembayaran harus tetap berjalan.
+5. **Harga simulasi**: harga jadwal hasil impor dihitung rumus, bukan harga resmi maskapai. Jadwal yang sudah punya booking tidak pernah diubah harga, pesawat, atau kursinya oleh impor.

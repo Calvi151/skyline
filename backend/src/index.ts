@@ -7,6 +7,9 @@ import bookingsRoute from './routes/customer/bookings.route.js'
 import airportsRoute from './routes/admin/airports.route.js'
 import airlinesRoute from './routes/admin/airlines.route.js'
 import airplanesRoute from './routes/admin/airplanes.route.js'
+import flightsRoute from './routes/admin/flights.route.js'
+import baggageOptionsRoute from './routes/admin/baggage-options.route.js'
+import publicRoute from './routes/public.route.js'
 
 const app = new Hono()
 
@@ -25,10 +28,15 @@ app.get('/', (c) => c.json({ error: false, data: { message: 'SkyBook API' } }))
 app.route('/api/auth', authRoute)
 app.route('/api/bookings', bookingsRoute)
 
-// Admin Master Data Routes (Phase 2)
+// Public Reference Data
+app.route('/api', publicRoute)
+
+// Admin Master Data Routes (Phase 2 & Phase 3)
 app.route('/api/admin/airports', airportsRoute)
 app.route('/api/admin/airlines', airlinesRoute)
 app.route('/api/admin/airplanes', airplanesRoute)
+app.route('/api/admin/flights', flightsRoute)
+app.route('/api/admin/baggage-options', baggageOptionsRoute)
 
 // 404 handler
 app.notFound((c) => {
