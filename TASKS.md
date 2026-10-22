@@ -35,8 +35,8 @@ Catatan revisi data real (lihat PRD bagian 8): tugas tambahan ditandai "(revisi 
 - [x] CRUD API: flight_schedules + flight_segments (support transit)
 - [x] Logic auto-generate seats berdasarkan airplane capacity
 - [x] CRUD API: baggage_options + endpoint publik GET /api/airports dan /api/baggage-options
-- [ ] UI: Form create flight schedule (dynamic segment input untuk transit)
-- [ ] UI: List & manage flight schedules (revisi data real: teks kecil "Impor API" untuk jadwal source api, dan dialog "Ubah status" dengan opsi tertunda + menit keterlambatan)
+- [x] UI: Form create flight schedule (dynamic segment input untuk transit)
+- [x] UI: List & manage flight schedules (revisi data real: teks kecil "Impor API" untuk jadwal source api, dan dialog "Ubah status" dengan opsi tertunda + menit keterlambatan)
 - [x] (revisi data real) Migrasi baru: flight_schedules (source, external_ref, delay_minutes, status_synced_at, created_by jadi nullable, unique index parsial), refunds.kind, tabel flight_notifications, provider_usage, provider_cache
 - [x] (revisi data real) Patch API jadwal yang sudah ada: GET /api/admin/flights menyertakan source, status, delay_minutes; PUT /api/admin/flights/:id menerima status dan delay_minutes (ADM-10), dan memblokir perubahan harga, pesawat, segmen jika sudah ada booking
 - [x] (revisi data real) Lapisan provider: interface FlightDataProvider, adapter AeroDataBox, cache, penjaga kuota (DAT-02, DAT-07, DAT-08)

@@ -1,4 +1,3 @@
-import React from 'react'
 import DataTablePage, { ColumnDef, FormFieldDef } from '../../components/admin/DataTablePage'
 
 export interface AirlineItem {

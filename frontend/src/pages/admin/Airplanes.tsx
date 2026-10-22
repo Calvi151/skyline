@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import DataTablePage, { ColumnDef, FormFieldDef, FilterTab } from '../../components/admin/DataTablePage'
 import { api } from '../../lib/api'
 

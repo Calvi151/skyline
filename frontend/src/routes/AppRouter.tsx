@@ -7,6 +7,9 @@ import AdminDashboard from '../pages/admin/Dashboard'
 import AirportsPage from '../pages/admin/Airports'
 import AirlinesPage from '../pages/admin/Airlines'
 import AirplanesPage from '../pages/admin/Airplanes'
+import BaggageOptionsPage from '../pages/admin/BaggageOptions'
+import FlightsPage from '../pages/admin/Flights'
+import FlightFormPage from '../pages/admin/FlightForm'
 import StaffDashboard from '../pages/staff/Dashboard'
 import Login from '../pages/auth/Login'
 import Register from '../pages/auth/Register'
@@ -92,6 +95,12 @@ export default function AppRouter() {
         <Route path="/admin/airports" element={<AirportsPage />} />
         <Route path="/admin/airlines" element={<AirlinesPage />} />
         <Route path="/admin/airplanes" element={<AirplanesPage />} />
+        <Route path="/admin/baggage-options" element={<BaggageOptionsPage />} />
+
+        {/* Admin - Flight Schedules (Phase 3 & Stitch B15/B16 Design) */}
+        <Route path="/admin/flights" element={<FlightsPage />} />
+        <Route path="/admin/flights/new" element={<FlightFormPage />} />
+        <Route path="/admin/flights/:id/edit" element={<FlightFormPage />} />
 
         {/* Staff */}
         <Route path="/staff" element={<StaffDashboard />} />

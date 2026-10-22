@@ -1,4 +1,3 @@
-import React from 'react'
 import DataTablePage, { ColumnDef, FormFieldDef, FilterTab } from '../../components/admin/DataTablePage'
 
 export interface AirportItem {
@@ -7,84 +6,8 @@ export interface AirportItem {
   name: string
   city: string
   country: string
-  icao?: string
-  description?: string
+  timezone?: string | null
 }
-
-const mockAirports: AirportItem[] = [
-  {
-    id: 1,
-    code: 'CGK',
-    icao: 'WIII',
-    name: 'Soekarno-Hatta International Airport',
-    description: 'Hub Utama 1, 2, & 3',
-    city: 'Tangerang, Banten (Jakarta)',
-    country: 'Indonesia',
-  },
-  {
-    id: 2,
-    code: 'DPS',
-    icao: 'WADD',
-    name: 'I Gusti Ngurah Rai International',
-    description: "Terminal Domestik & Int'l",
-    city: 'Denpasar, Bali',
-    country: 'Indonesia',
-  },
-  {
-    id: 3,
-    code: 'SUB',
-    icao: 'WARR',
-    name: 'Juanda International Airport',
-    description: 'Terminal 1 & 2 Sidoarjo',
-    city: 'Surabaya, Jawa Timur',
-    country: 'Indonesia',
-  },
-  {
-    id: 4,
-    code: 'UPG',
-    icao: 'WAAA',
-    name: 'Sultan Hasanuddin International Airport',
-    description: 'Gerbang Hub Indonesia Timur',
-    city: 'Makassar, Sulawesi Selatan',
-    country: 'Indonesia',
-  },
-  {
-    id: 5,
-    code: 'KNO',
-    icao: 'WIMM',
-    name: 'Kualanamu International Airport',
-    description: 'Konektivitas Rail Express',
-    city: 'Deli Serdang / Medan, Sumut',
-    country: 'Indonesia',
-  },
-  {
-    id: 6,
-    code: 'JOG',
-    icao: 'WAHI',
-    name: 'Yogyakarta International Airport (YIA)',
-    description: 'Terminal Baru Modern Kulon Progo',
-    city: 'Kulon Progo, D.I. Yogyakarta',
-    country: 'Indonesia',
-  },
-  {
-    id: 7,
-    code: 'BPN',
-    icao: 'WALL',
-    name: 'Sultan Aji Muhammad Sulaiman Sepinggan',
-    description: 'Gerbang IKN Nusantara',
-    city: 'Balikpapan, Kalimantan Timur',
-    country: 'Indonesia',
-  },
-  {
-    id: 8,
-    code: 'LOP',
-    icao: 'WADL',
-    name: 'Lombok International Airport (ZAM)',
-    description: 'Kawasan Mandalika Circuit Access',
-    city: 'Lombok Tengah, NTB',
-    country: 'Indonesia',
-  },
-]
 
 export default function AirportsPage() {
   const columns: ColumnDef<AirportItem>[] = [
@@ -92,14 +15,11 @@ export default function AirportsPage() {
       key: 'code',
       label: 'Kode (IATA)',
       sortable: true,
-      width: '140px',
-      render: (row, q) => (
-        <div className="flex items-baseline gap-1.5">
-          <span className="font-bold text-sm tracking-tight text-ink font-sans tabular-nums">
+      width: '130px',
+      render: (row) => (
+        <div className="flex items-center gap-2">
+          <span className="font-bold text-sm text-brand-fg bg-tint px-2.5 py-0.5 rounded tabular-nums font-mono">
             {row.code}
-          </span>
-          <span className="text-[10px] text-subtle font-mono uppercase">
-            {row.icao || 'W---'}
           </span>
         </div>
       ),
@@ -108,21 +28,18 @@ export default function AirportsPage() {
       key: 'name',
       label: 'Nama Bandara',
       sortable: true,
-      render: (row, q) => {
-        const desc = row.description || 'Terminal Penumpang'
-        return (
-          <div>
-            <div className="font-semibold text-ink text-xs">{row.name}</div>
-            <div className="text-[11px] text-subtle mt-0.5">{desc}</div>
-          </div>
-        )
-      },
+      render: (row) => (
+        <div>
+          <div className="font-semibold text-ink text-xs">{row.name}</div>
+          <div className="text-[11px] text-subtle mt-0.5">Terminal Komersial Penumpang</div>
+        </div>
+      ),
     },
     {
       key: 'city',
       label: 'Kota / Wilayah',
       sortable: true,
-      render: (row) => <span className="text-subtle text-xs">{row.city}</span>,
+      render: (row) => <span className="text-subtle text-xs font-medium">{row.city}</span>,
     },
     {
       key: 'country',
@@ -131,12 +48,13 @@ export default function AirportsPage() {
       render: (row) => <span className="text-subtle text-xs">{row.country}</span>,
     },
     {
-      key: 'status',
-      label: 'Status Operasional',
-      render: () => (
+      key: 'timezone',
+      label: 'Zona Waktu',
+      sortable: true,
+      render: (row) => (
         <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-tint/60 text-ink text-[11px] font-medium border border-line/60">
-          <span className="w-1.5 h-1.5 rounded-full bg-success" />
-          <span>Aktif</span>
+          <span className="w-1.5 h-1.5 rounded-full bg-brand-fg" />
+          <span>{row.timezone || 'Asia/Jakarta'}</span>
         </span>
       ),
     },
@@ -183,6 +101,14 @@ export default function AirportsPage() {
       placeholder: 'Indonesia',
       validate: (val) => (!val ? 'Negara wajib diisi' : null),
     },
+    {
+      name: 'timezone',
+      label: 'Zona Waktu (Opsional)',
+      required: false,
+      defaultValue: 'Asia/Jakarta',
+      placeholder: 'Asia/Jakarta',
+      helperText: 'Zona waktu IANA standar (misal: Asia/Jakarta, Asia/Makassar, Asia/Jayapura).',
+    },
   ]
 
   const filterTabs: FilterTab[] = [
@@ -217,7 +143,7 @@ export default function AirportsPage() {
         `Hapus bandara ${item.code}? Semua jadwal penerbangan, manifest rute, dan alokasi yang terikat pada bandara ${item.name} akan terpengaruh.`
       }
       exportFilename="master-data-bandara.csv"
-      fallbackMockData={mockAirports}
+      fallbackMockData={[]}
     />
   )
 }

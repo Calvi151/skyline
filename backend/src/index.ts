@@ -11,6 +11,9 @@ import flightsRoute from './routes/admin/flights.route.js'
 import baggageOptionsRoute from './routes/admin/baggage-options.route.js'
 import publicRoute from './routes/public.route.js'
 import providerRoute from './routes/admin/provider.route.js'
+import dashboardRoute from './routes/admin/dashboard.route.js'
+import usersRoute from './routes/admin/users.route.js'
+import refundsRoute from './routes/admin/refunds.route.js'
 
 const app = new Hono()
 
@@ -32,13 +35,16 @@ app.route('/api/bookings', bookingsRoute)
 // Public Reference Data
 app.route('/api', publicRoute)
 
-// Admin Master Data Routes (Phase 2 & Phase 3)
+// Admin Master Data Routes (Phase 2 & Phase 3 & Phase 7)
 app.route('/api/admin/airports', airportsRoute)
 app.route('/api/admin/airlines', airlinesRoute)
 app.route('/api/admin/airplanes', airplanesRoute)
 app.route('/api/admin/flights', flightsRoute)
 app.route('/api/admin/baggage-options', baggageOptionsRoute)
 app.route('/api/admin/provider', providerRoute)
+app.route('/api/admin/dashboard', dashboardRoute)
+app.route('/api/admin/users', usersRoute)
+app.route('/api/admin/refunds', refundsRoute)
 
 // 404 handler
 app.notFound((c) => {

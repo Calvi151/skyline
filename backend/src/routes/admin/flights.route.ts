@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { eq, desc, and, count } from 'drizzle-orm'
+import { eq, desc, and, count, inArray, sql } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import {
   flightSchedules,
@@ -66,6 +66,7 @@ flightsRoute.get('/', async (c) => {
   // Fetch segments for each schedule
   const scheduleIds = schedules.map((s) => s.id)
   let allSegments: any[] = []
+  let seatStatsMap = new Map<number, { total: number; booked: number }>()
 
   if (scheduleIds.length > 0) {
     allSegments = await db
@@ -81,6 +82,26 @@ flightsRoute.get('/', async (c) => {
       })
       .from(flightSegments)
       .orderBy(flightSegments.segmentOrder)
+
+    // Aggregate seats per schedule
+    const seatCounts = await db
+      .select({
+        flightScheduleId: seats.flightScheduleId,
+        total: count(),
+        booked: sql<number>`count(case when ${seats.isAvailable} = false then 1 end)`,
+      })
+      .from(seats)
+      .where(inArray(seats.flightScheduleId, scheduleIds))
+      .groupBy(seats.flightScheduleId)
+
+    for (const sc of seatCounts) {
+      if (sc.flightScheduleId) {
+        seatStatsMap.set(sc.flightScheduleId, {
+          total: Number(sc.total),
+          booked: Number(sc.booked),
+        })
+      }
+    }
   }
 
   // Fetch airport names
@@ -96,9 +117,17 @@ flightsRoute.get('/', async (c) => {
         destinationAirport: airportMap.get(seg.destinationAirportId!) || null,
       }))
 
+    const defaultTotal =
+      (schedule.airplane?.totalSeatEconomy || 0) + (schedule.airplane?.totalSeatBusiness || 0)
+    const stats = seatStatsMap.get(schedule.id) || {
+      total: defaultTotal,
+      booked: 0,
+    }
+
     return {
       ...schedule,
       segments,
+      seatStats: stats,
     }
   })
 

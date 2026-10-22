@@ -105,7 +105,6 @@ export default function DataTablePage<T extends { id: number | string }>({
   // ─── Fetch Data ───
   const fetchData = async () => {
     setIsLoading(true)
-    setErrorMessage(null)
     try {
       const res = await api.get(apiEndpoint)
       if (res.data?.data) {
