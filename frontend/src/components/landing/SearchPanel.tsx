@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { api } from '../../lib/api'
 
 interface Airport {
   code: string
@@ -11,9 +12,11 @@ const POPULAR_AIRPORTS: Airport[] = [
   { code: 'CGK', city: 'Jakarta', name: 'Bandara Internasional Soekarno-Hatta' },
   { code: 'DPS', city: 'Denpasar', name: 'Bandara Internasional I Gusti Ngurah Rai' },
   { code: 'SUB', city: 'Surabaya', name: 'Bandara Internasional Juanda' },
-  { code: 'UPG', city: 'Makassar', name: 'Bandara Internasional Sultan Hasanuddin' },
+  { code: 'SIN', city: 'Singapura', name: 'Singapore Changi International Airport' },
+  { code: 'DOH', city: 'Doha', name: 'Hamad International Airport' },
   { code: 'KNO', city: 'Medan', name: 'Bandara Internasional Kualanamu' },
-  { code: 'JOG', city: 'Yogyakarta', name: 'Bandara Adisutjipto / YIA' },
+  { code: 'YIA', city: 'Yogyakarta', name: 'Bandara Internasional Yogyakarta' },
+  { code: 'UPG', city: 'Makassar', name: 'Bandara Internasional Sultan Hasanuddin' },
 ]
 
 interface RecentSearch {
@@ -28,21 +31,53 @@ interface RecentSearch {
 
 export default function SearchPanel() {
   const navigate = useNavigate()
+  const todayStr = new Date().toISOString().slice(0, 10)
 
   // Form states
   const [origin, setOrigin] = useState<Airport>(POPULAR_AIRPORTS[0]) // CGK
   const [destination, setDestination] = useState<Airport>(POPULAR_AIRPORTS[1]) // DPS
-  const [departureDate, setDepartureDate] = useState('2026-10-14')
+  const [departureDate, setDepartureDate] = useState(todayStr)
   const [passengers, setPassengers] = useState(1)
   const [cabinClass, setCabinClass] = useState<'economy' | 'business'>('economy')
 
   // UI state for dropdowns
   const [activeDropdown, setActiveDropdown] = useState<'origin' | 'destination' | 'passengers' | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
+  const [searchedAirports, setSearchedAirports] = useState<Airport[]>([])
+  const [isSearchingAirports, setIsSearchingAirports] = useState(false)
   const [errorMsg, setErrorMsg] = useState('')
   const [recentSearches, setRecentSearches] = useState<RecentSearch[]>([])
 
   const panelRef = useRef<HTMLDivElement>(null)
+
+  // Live search airports from API when typing
+  useEffect(() => {
+    const q = searchQuery.trim()
+    if (q.length < 2) {
+      setSearchedAirports([])
+      setIsSearchingAirports(false)
+      return
+    }
+
+    setIsSearchingAirports(true)
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.get<{ data: any[] }>(`/airports?q=${encodeURIComponent(q)}`)
+        const items = (res.data?.data || []).map((a: any) => ({
+          code: a.code,
+          city: a.city,
+          name: a.name,
+        }))
+        setSearchedAirports(items)
+      } catch (err) {
+        console.error('Failed to search airports:', err)
+      } finally {
+        setIsSearchingAirports(false)
+      }
+    }, 250)
+
+    return () => clearTimeout(timer)
+  }, [searchQuery])
 
   // Load recent searches from localStorage
   useEffect(() => {
@@ -67,12 +102,14 @@ export default function SearchPanel() {
     return () => document.removeEventListener('mousedown', handleClickOutside)
   }, [])
 
-  const filteredAirports = POPULAR_AIRPORTS.filter(
+  const filteredPopular = POPULAR_AIRPORTS.filter(
     (a) =>
       a.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
       a.city.toLowerCase().includes(searchQuery.toLowerCase()) ||
       a.name.toLowerCase().includes(searchQuery.toLowerCase())
   )
+
+  const displayedAirports = searchQuery.trim().length >= 2 ? searchedAirports : filteredPopular
 
   const [isSwapping, setIsSwapping] = useState(false)
 
@@ -186,40 +223,47 @@ export default function SearchPanel() {
                     className="w-full px-3 py-1.5 text-xs bg-panel border border-line rounded-lg text-ink focus:outline-none focus:ring-1 focus:ring-brand-fg"
                   />
                 </div>
-                <div className="text-[10px] uppercase font-semibold text-subtle px-2 py-1 border-b border-line">
-                  Daftar Bandara
+                <div className="text-[10px] uppercase font-semibold text-subtle px-2 py-1 border-b border-line flex items-center justify-between">
+                  <span>{searchQuery.trim().length >= 2 ? 'Hasil Pencarian' : 'Bandara Populer'}</span>
+                  {isSearchingAirports && <span className="text-[10px] lowercase text-subtle italic">mencari...</span>}
                 </div>
                 <div className="max-h-56 overflow-y-auto space-y-1 mt-1">
-                  {filteredAirports.map((airport) => (
-                    <div
-                      key={airport.code}
-                      onClick={() => {
-                        setOrigin(airport)
-                        setActiveDropdown(null)
-                        setErrorMsg('')
-                      }}
-                      className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors ${
-                        origin.code === airport.code
-                          ? 'bg-tint text-ink'
-                          : 'hover:bg-page text-ink'
-                      }`}
-                    >
-                      <div className="text-left min-w-0 pr-2">
-                        <div className="flex items-baseline gap-2">
-                          <span className="font-bold text-sm text-brand-fg tabular-nums">
-                            {airport.code}
-                          </span>
-                          <span className="text-xs font-semibold text-ink">{airport.city}</span>
-                        </div>
-                        <p className="text-[11px] text-subtle truncate">{airport.name}</p>
-                      </div>
-                      {origin.code === airport.code && (
-                        <span className="material-symbols-outlined text-brand-fg text-[18px]">
-                          check
-                        </span>
-                      )}
+                  {displayedAirports.length === 0 && !isSearchingAirports ? (
+                    <div className="p-3 text-center text-xs text-subtle">
+                      Tidak ada bandara yang cocok
                     </div>
-                  ))}
+                  ) : (
+                    displayedAirports.map((airport) => (
+                      <div
+                        key={airport.code}
+                        onClick={() => {
+                          setOrigin(airport)
+                          setActiveDropdown(null)
+                          setErrorMsg('')
+                        }}
+                        className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors ${
+                          origin.code === airport.code
+                            ? 'bg-tint text-ink'
+                            : 'hover:bg-page text-ink'
+                        }`}
+                      >
+                        <div className="text-left min-w-0 pr-2">
+                          <div className="flex items-baseline gap-2">
+                            <span className="font-bold text-sm text-brand-fg tabular-nums">
+                              {airport.code}
+                            </span>
+                            <span className="text-xs font-semibold text-ink">{airport.city}</span>
+                          </div>
+                          <p className="text-[11px] text-subtle truncate">{airport.name}</p>
+                        </div>
+                        {origin.code === airport.code && (
+                          <span className="material-symbols-outlined text-brand-fg text-[18px]">
+                            check
+                          </span>
+                        )}
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}
@@ -283,40 +327,47 @@ export default function SearchPanel() {
                     className="w-full px-3 py-1.5 text-xs bg-panel border border-line rounded-lg text-ink focus:outline-none focus:ring-1 focus:ring-brand-fg"
                   />
                 </div>
-                <div className="text-[10px] uppercase font-semibold text-subtle px-2 py-1 border-b border-line">
-                  Daftar Bandara
+                <div className="text-[10px] uppercase font-semibold text-subtle px-2 py-1 border-b border-line flex items-center justify-between">
+                  <span>{searchQuery.trim().length >= 2 ? 'Hasil Pencarian' : 'Bandara Populer'}</span>
+                  {isSearchingAirports && <span className="text-[10px] lowercase text-subtle italic">mencari...</span>}
                 </div>
                 <div className="max-h-56 overflow-y-auto space-y-1 mt-1">
-                  {filteredAirports.map((airport) => (
-                    <div
-                      key={airport.code}
-                      onClick={() => {
-                        setDestination(airport)
-                        setActiveDropdown(null)
-                        setErrorMsg('')
-                      }}
-                      className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors ${
-                        destination.code === airport.code
-                          ? 'bg-tint text-ink'
-                          : 'hover:bg-page text-ink'
-                      }`}
-                    >
-                      <div className="text-left min-w-0 pr-2">
-                        <div className="flex items-baseline gap-2">
-                          <span className="font-bold text-sm text-brand-fg tabular-nums">
-                            {airport.code}
-                          </span>
-                          <span className="text-xs font-semibold text-ink">{airport.city}</span>
-                        </div>
-                        <p className="text-[11px] text-subtle truncate">{airport.name}</p>
-                      </div>
-                      {destination.code === airport.code && (
-                        <span className="material-symbols-outlined text-brand-fg text-[18px]">
-                          check
-                        </span>
-                      )}
+                  {displayedAirports.length === 0 && !isSearchingAirports ? (
+                    <div className="p-3 text-center text-xs text-subtle">
+                      Tidak ada bandara yang cocok
                     </div>
-                  ))}
+                  ) : (
+                    displayedAirports.map((airport) => (
+                      <div
+                        key={airport.code}
+                        onClick={() => {
+                          setDestination(airport)
+                          setActiveDropdown(null)
+                          setErrorMsg('')
+                        }}
+                        className={`flex items-center justify-between p-2 rounded-lg cursor-pointer transition-colors ${
+                          destination.code === airport.code
+                            ? 'bg-tint text-ink'
+                            : 'hover:bg-page text-ink'
+                        }`}
+                      >
+                        <div className="text-left min-w-0 pr-2">
+                          <div className="flex items-baseline gap-2">
+                            <span className="font-bold text-sm text-brand-fg tabular-nums">
+                              {airport.code}
+                            </span>
+                            <span className="text-xs font-semibold text-ink">{airport.city}</span>
+                          </div>
+                          <p className="text-[11px] text-subtle truncate">{airport.name}</p>
+                        </div>
+                        {destination.code === airport.code && (
+                          <span className="material-symbols-outlined text-brand-fg text-[18px]">
+                            check
+                          </span>
+                        )}
+                      </div>
+                    ))
+                  )}
                 </div>
               </div>
             )}
@@ -332,7 +383,7 @@ export default function SearchPanel() {
                 type="date"
                 value={departureDate}
                 onChange={(e) => setDepartureDate(e.target.value)}
-                min="2026-10-07"
+                min={todayStr}
                 className="bg-transparent text-sm font-bold text-ink mt-0.5 focus:outline-none cursor-pointer"
               />
               <span className="text-[11px] text-subtle">Satu arah</span>

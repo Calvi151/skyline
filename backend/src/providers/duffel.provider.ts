@@ -383,9 +383,18 @@ export class DuffelProvider implements FlightDataProvider {
       SUB: 'QG',
       KNO: 'JT',
       YIA: 'IU',
+      SIN: 'SQ',
+      DOH: 'QR',
     }
     const defaultAirline = airlinesMap[origin] || 'GA'
-    const durationMins = 110 // Rata-rata penerbangan domestik 1j 50m
+    let durationMins = 110 // Default rata-rata domestik 1j 50m
+    if ((origin === 'CGK' && dest === 'DOH') || (origin === 'DOH' && dest === 'CGK')) {
+      durationMins = 520 // ~8 jam 40 menit
+    } else if ((origin === 'SIN' && dest === 'DOH') || (origin === 'DOH' && dest === 'SIN')) {
+      durationMins = 460 // ~7 jam 40 menit
+    } else if ((origin === 'CGK' && dest === 'SIN') || (origin === 'SIN' && dest === 'CGK')) {
+      durationMins = 115 // ~1 jam 55 menit
+    }
 
     return hours.map((hour, idx) => {
       const depUtc = new Date(`${dateStr}T${String(hour).padStart(2, '0')}:15:00Z`)

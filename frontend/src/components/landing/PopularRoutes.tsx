@@ -109,8 +109,9 @@ export default function PopularRoutes({ onHoverRoute, onSelectRoute }: PopularRo
     if (onSelectRoute) {
       onSelectRoute(route)
     } else {
+      const todayStr = new Date().toISOString().slice(0, 10)
       navigate(
-        `/search?origin=${route.originCode}&destination=${route.destinationCode}&date=2026-10-14&passengers=1&class=economy`
+        `/search?origin=${route.originCode}&destination=${route.destinationCode}&date=${todayStr}&passengers=1&class=economy`
       )
     }
   }

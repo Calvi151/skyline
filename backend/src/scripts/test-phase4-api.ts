@@ -134,7 +134,7 @@ async function runTests() {
       flight_schedule_id: sampleFlight.id,
       passengers: [
         {
-          full_name: 'Budi Test Passenger',
+          full_name: testUser.name || 'Test Passenger',
           id_number: '3201012345670001',
           birth_date: '1995-08-17',
           gender: 'male',

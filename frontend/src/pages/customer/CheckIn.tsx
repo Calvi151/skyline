@@ -95,7 +95,6 @@ export default function CheckIn() {
 
   // Selected Booking Detail
   const [bookingDetail, setBookingDetail] = useState<BookingCheckInDetail | null>(null)
-  const [loadingDetail, setLoadingDetail] = useState(false)
 
   // Passenger seat edits (passengerId -> seatId)
   const [selectedSeats, setSelectedSeats] = useState<Record<number, { seatId: number; seatNumber: string }>>({})
@@ -146,7 +145,6 @@ export default function CheckIn() {
       return
     }
 
-    setLoadingDetail(true)
     setIsSearching(true)
     setSearchError(null)
 
@@ -198,7 +196,6 @@ export default function CheckIn() {
       setSearchError(err?.message || 'Kode booking tidak ditemukan atau penerbangan tidak valid.')
       setBookingDetail(null)
     } finally {
-      setLoadingDetail(false)
       setIsSearching(false)
     }
   }

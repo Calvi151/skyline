@@ -55,7 +55,7 @@ export default function BookingDetail() {
       const initial: PassengerData[] = []
       for (let i = 0; i < passengersCountParam; i++) {
         initial.push({
-          full_name: '',
+          full_name: i === 0 && user?.name ? user.name : '',
           id_number: '',
           birth_date: '1995-05-18',
           gender: 'male',
@@ -68,8 +68,11 @@ export default function BookingDetail() {
         })
       }
       setPassengers(initial)
+    } else if (passengers.length > 0 && !passengers[0].full_name && user?.name) {
+      // Auto-fill passenger 1 if currently blank and user profile is loaded
+      updatePassenger(0, { full_name: user.name })
     }
-  }, [passengersCountParam, cabinClassParam, passengers.length, setPassengers])
+  }, [passengersCountParam, cabinClassParam, passengers.length, setPassengers, user?.name])
 
   // Load Flight detail & Baggage options
   const loadFlightAndBaggage = async () => {
@@ -537,9 +540,21 @@ export default function BookingDetail() {
                           <div className="p-5 sm:p-6 space-y-4">
                             {/* Full Name */}
                             <div className="flex flex-col gap-1.5">
-                              <label className="text-xs font-bold text-subtle uppercase">
-                                Nama lengkap (sesuai KTP atau paspor)
-                              </label>
+                              <div className="flex items-center justify-between">
+                                <label className="text-xs font-bold text-subtle uppercase">
+                                  Nama lengkap (sesuai KTP atau paspor)
+                                </label>
+                                {user?.name && p.full_name !== user.name && (
+                                  <button
+                                    type="button"
+                                    onClick={() => updatePassenger(idx, { full_name: user.name })}
+                                    className="text-[11px] text-brand-fg hover:underline font-semibold flex items-center gap-1 cursor-pointer"
+                                  >
+                                    <span className="material-symbols-outlined text-[14px]">account_circle</span>
+                                    <span>Gunakan nama akun ({user.name})</span>
+                                  </button>
+                                )}
+                              </div>
                               <div className="relative flex items-center">
                                 <span className="material-symbols-outlined absolute left-3.5 text-subtle text-[20px] pointer-events-none">
                                   person

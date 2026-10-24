@@ -73,7 +73,7 @@ export default function SearchResults() {
   // Client-side filters
   const [filterTypes, setFilterTypes] = useState<string[]>([]) // ['direct', 'transit']
   const [filterAirlines, setFilterAirlines] = useState<string[]>([])
-  const [maxPrice, setMaxPrice] = useState<number>(3000000)
+  const [maxPrice, setMaxPrice] = useState<number>(20000000)
   const [timeWindows, setTimeWindows] = useState<string[]>([]) // 'pagi', 'siang', 'sore', 'malam'
   const [filterBaggageIncluded, setFilterBaggageIncluded] = useState(false)
 
@@ -104,11 +104,13 @@ export default function SearchResults() {
           ).catch(() => ({ data: [] })),
         ])
 
-        const results = Array.isArray(flightsRes?.data) ? flightsRes.data : []
+        const rawFlights = (flightsRes?.data as any)?.data || flightsRes?.data
+        const results = Array.isArray(rawFlights) ? rawFlights : []
         setFlights(results)
 
-        if (Array.isArray(calRes?.data) && calRes.data.length > 0) {
-          setCalendarDays(calRes.data)
+        const rawCal = (calRes?.data as any)?.data || calRes?.data
+        if (Array.isArray(rawCal) && rawCal.length > 0) {
+          setCalendarDays(rawCal)
         } else {
           // Generate 7-day fallback dates around current date (tanpa harga, tampil "-")
           const anchor = new Date(date)
@@ -124,13 +126,13 @@ export default function SearchResults() {
           setCalendarDays(fallbackDays)
         }
 
-        // Set max price limit from results
+        // Set max price limit dynamically from results
         if (results.length > 0) {
           const prices = results.map((r) =>
             cabinClass === 'business' && r.price_business ? r.price_business : r.price_economy
           )
-          const highest = Math.max(...prices)
-          setMaxPrice(Math.ceil(highest / 500000) * 500000 + 200000)
+          const highest = Math.max(...prices, 4000000)
+          setMaxPrice(Math.ceil(highest / 500000) * 500000 + 500000)
         }
       } catch (err: any) {
         console.error('Failed to fetch search results:', err)
@@ -167,6 +169,16 @@ export default function SearchResults() {
       }
     })
     return Array.from(map.values())
+  }, [flights, cabinClass])
+
+  // Max price ceiling for the range slider
+  const maxSliderPrice = useMemo(() => {
+    if (flights.length === 0) return 20000000
+    const prices = flights.map((f) =>
+      cabinClass === 'business' && f.price_business ? f.price_business : f.price_economy
+    )
+    const highest = Math.max(...prices, 4000000)
+    return Math.ceil(highest / 500000) * 500000 + 500000
   }, [flights, cabinClass])
 
   // Count by flight type
@@ -299,7 +311,7 @@ export default function SearchResults() {
   const handleResetFilters = () => {
     setFilterTypes([])
     setFilterAirlines([])
-    setMaxPrice(3000000)
+    setMaxPrice(maxSliderPrice)
     setTimeWindows([])
     setFilterBaggageIncluded(false)
   }
@@ -308,7 +320,8 @@ export default function SearchResults() {
     filterTypes.length > 0 ||
     filterAirlines.length > 0 ||
     timeWindows.length > 0 ||
-    filterBaggageIncluded
+    filterBaggageIncluded ||
+    maxPrice < maxSliderPrice
 
   return (
     <div className="min-h-screen bg-page font-sans text-ink flex flex-col justify-between antialiased">
@@ -565,7 +578,7 @@ export default function SearchResults() {
                       <div
                         key={i}
                         className={`flex-1 rounded-t-xs transition-all ${
-                          i < (maxPrice / 3000000) * 12 ? 'bg-brand' : 'bg-line'
+                          i < (maxPrice / maxSliderPrice) * 12 ? 'bg-brand' : 'bg-line'
                         }`}
                         style={{ height: `${height}%` }}
                       />
@@ -574,16 +587,16 @@ export default function SearchResults() {
                   <input
                     type="range"
                     min="500000"
-                    max="4000000"
+                    max={maxSliderPrice}
                     step="100000"
-                    value={maxPrice}
+                    value={Math.min(maxPrice, maxSliderPrice)}
                     onChange={(e) => setMaxPrice(Number(e.target.value))}
                     className="w-full h-1.5 bg-line rounded-lg appearance-none cursor-pointer accent-brand mt-2"
                   />
                 </div>
                 <div className="flex justify-between text-[11px] text-subtle tabular-nums font-medium">
                   <span>Rp 500.000</span>
-                  <span>Rp 4.000.000</span>
+                  <span>{formatRupiah(maxSliderPrice)}</span>
                 </div>
               </div>
 
