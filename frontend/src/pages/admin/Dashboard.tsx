@@ -19,26 +19,35 @@ export default function AdminDashboard() {
       api.get('/admin/airports'),
       api.get('/admin/airlines'),
       api.get('/admin/airplanes'),
-    ]).then(([resAirports, resAirlines, resPlanes]) => {
-      let airportsCount = 8
-      let airlinesCount = 6
-      let airplanesCount = 14
+      api.get('/admin/flights'),
+    ]).then(([resAirports, resAirlines, resPlanes, resFlights]) => {
+      let airportsCount = 0
+      let airlinesCount = 0
+      let airplanesCount = 0
+      let flightsCount = 0
 
-      if (resAirports.status === 'fulfilled' && resAirports.value.data?.data) {
-        airportsCount = resAirports.value.data.data.length
+      if (resAirports.status === 'fulfilled') {
+        const list = resAirports.value.data?.data ?? resAirports.value.data
+        if (Array.isArray(list)) airportsCount = list.length
       }
-      if (resAirlines.status === 'fulfilled' && resAirlines.value.data?.data) {
-        airlinesCount = resAirlines.value.data.data.length
+      if (resAirlines.status === 'fulfilled') {
+        const list = resAirlines.value.data?.data ?? resAirlines.value.data
+        if (Array.isArray(list)) airlinesCount = list.length
       }
-      if (resPlanes.status === 'fulfilled' && resPlanes.value.data?.data) {
-        airplanesCount = resPlanes.value.data.data.length
+      if (resPlanes.status === 'fulfilled') {
+        const list = resPlanes.value.data?.data ?? resPlanes.value.data
+        if (Array.isArray(list)) airplanesCount = list.length
+      }
+      if (resFlights.status === 'fulfilled') {
+        const list = resFlights.value.data?.data ?? resFlights.value.data
+        if (Array.isArray(list)) flightsCount = list.length
       }
 
       setStats({
         airportsCount,
         airlinesCount,
         airplanesCount,
-        flightsCount: 0,
+        flightsCount,
       })
     })
   }, [])

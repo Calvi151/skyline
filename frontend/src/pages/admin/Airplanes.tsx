@@ -4,11 +4,15 @@ import { api } from '../../lib/api'
 
 export interface AirplaneItem {
   id: number
-  airlineId: number
-  registrationNumber: string
+  airlineId?: number
+  airline_id?: number
+  registrationNumber?: string
+  registration_number?: string
   model: string
-  totalSeatEconomy: number
-  totalSeatBusiness: number
+  totalSeatEconomy?: number
+  total_seat_economy?: number
+  totalSeatBusiness?: number
+  total_seat_business?: number
   airline?: {
     id: number
     name: string
@@ -97,12 +101,15 @@ export default function AirplanesPage() {
       label: 'Registrasi Pesawat',
       sortable: true,
       width: '160px',
-      render: (row) => (
-        <div className="flex items-center gap-1.5 font-bold text-ink">
-          <span className="material-symbols-outlined text-[16px] text-brand-fg">flight</span>
-          <span className="font-mono text-xs uppercase tracking-wider">{row.registrationNumber}</span>
-        </div>
-      ),
+      render: (row) => {
+        const regNo = row.registrationNumber || row.registration_number || ''
+        return (
+          <div className="flex items-center gap-1.5 font-bold text-ink">
+            <span className="material-symbols-outlined text-[16px] text-brand-fg">flight</span>
+            <span className="font-mono text-xs uppercase tracking-wider">{regNo}</span>
+          </div>
+        )
+      },
     },
     {
       key: 'model',
@@ -122,12 +129,14 @@ export default function AirplanesPage() {
       label: 'Konfigurasi Kursi',
       sortable: false,
       render: (row) => {
-        const total = (row.totalSeatEconomy || 0) + (row.totalSeatBusiness || 0)
+        const eco = row.totalSeatEconomy ?? row.total_seat_economy ?? 0
+        const bus = row.totalSeatBusiness ?? row.total_seat_business ?? 0
+        const total = eco + bus
         return (
           <div className="flex items-center gap-2 text-xs tabular-nums">
             <span className="font-bold text-ink">{total} Kursi</span>
             <span className="text-[11px] text-subtle">
-              ({row.totalSeatEconomy} Ekonomi {row.totalSeatBusiness > 0 && `• ${row.totalSeatBusiness} Bisnis`})
+              ({eco} Ekonomi {bus > 0 && `• ${bus} Bisnis`})
             </span>
           </div>
         )
@@ -224,10 +233,10 @@ export default function AirplanesPage() {
       filterTabs={filterTabs}
       columns={columns}
       fields={fields}
-      getItemIdentifier={(item) => item.registrationNumber}
-      getItemName={(item) => `${item.model} (${item.registrationNumber})`}
+      getItemIdentifier={(item) => item.registrationNumber || item.registration_number || `#${item.id}`}
+      getItemName={(item) => `${item.model} (${item.registrationNumber || item.registration_number || item.id})`}
       deleteWarningMessage={(item) =>
-        `Hapus pesawat ${item.registrationNumber}? Jadwal penerbangan yang dijadwalkan menggunakan pesawat ini tidak dapat dioperasikan.`
+        `Hapus pesawat ${item.registrationNumber || item.registration_number}? Jadwal penerbangan yang dijadwalkan menggunakan pesawat ini tidak dapat dioperasikan.`
       }
       exportFilename="master-data-pesawat.csv"
       fallbackMockData={mockAirplanes}

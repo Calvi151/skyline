@@ -9,7 +9,7 @@ import {
   airplanes,
   bookings,
 } from '../db/schema.js'
-import { aeroDataBoxProvider } from '../providers/aerodatabox.provider.js'
+import { getActiveFlightProvider } from '../providers/index.js'
 import { generateSeatList } from '../services/seat-generator.service.js'
 import type { ProviderScheduleItem } from '../providers/flight-provider.interface.js'
 
@@ -99,9 +99,10 @@ export async function importSchedulesJob(
       continue
     }
 
+    const provider = getActiveFlightProvider()
     let items: ProviderScheduleItem[] = []
     try {
-      items = await aeroDataBoxProvider.getSchedulesByRoute(origin, dest, fromDate, toDate)
+      items = await provider.getSchedulesByRoute(origin, dest, fromDate, toDate)
       result.units_used++
     } catch (err: any) {
       if (err.message === 'PROVIDER_QUOTA_EXCEEDED') {

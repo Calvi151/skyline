@@ -2,7 +2,6 @@ import React from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import ThemeToggle from '../common/ThemeToggle'
-import { api } from '../../lib/api'
 
 interface AdminLayoutProps {
   children: React.ReactNode
@@ -12,15 +11,12 @@ interface AdminLayoutProps {
 export default function AdminLayout({ children, currentSection }: AdminLayoutProps) {
   const location = useLocation()
   const navigate = useNavigate()
-  const { user, setUser } = useAuthStore()
+  const { user, logout } = useAuthStore()
 
   const handleLogout = async () => {
     try {
-      await api.post('/auth/logout')
-    } catch (err) {
-      console.warn('Logout error:', err)
+      await logout()
     } finally {
-      setUser(null)
       navigate('/login')
     }
   }
@@ -114,7 +110,16 @@ export default function AdminLayout({ children, currentSection }: AdminLayoutPro
           </div>
 
           {/* User Controls & Actions */}
-          <div className="flex items-center gap-3 md:gap-4">
+          <div className="flex items-center gap-2 sm:gap-3 md:gap-4">
+            <Link
+              to="/"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-control text-xs font-medium border border-line bg-panel hover:bg-tint text-ink transition-colors shadow-2xs"
+              title="Lihat Beranda Pemesanan Tiket"
+            >
+              <span className="material-symbols-outlined text-[16px] text-brand-fg">travel_explore</span>
+              <span className="hidden sm:inline">Lihat Web</span>
+            </Link>
+
             <ThemeToggle />
 
             <div className="h-5 w-px bg-line" />

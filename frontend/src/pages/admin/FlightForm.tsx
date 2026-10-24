@@ -19,11 +19,15 @@ interface AirlineItem {
 
 interface AirplaneItem {
   id: number
-  airlineId: number
-  registrationNumber: string
+  airlineId?: number
+  airline_id?: number
+  registrationNumber?: string
+  registration_number?: string
   model: string
-  totalSeatEconomy: number
+  totalSeatEconomy?: number
+  total_seat_economy?: number
   totalSeatBusiness?: number | null
+  total_seat_business?: number | null
 }
 
 interface SegmentFormState {
@@ -79,15 +83,12 @@ export default function FlightFormPage() {
           api.get('/admin/airplanes').catch(() => ({ data: [] })),
         ])
 
-        const airportList: AirportItem[] = Array.isArray((airportsRes as any)?.data)
-          ? (airportsRes as any).data
-          : []
-        const airlineList: AirlineItem[] = Array.isArray((airlinesRes as any)?.data)
-          ? (airlinesRes as any).data
-          : []
-        const airplaneList: AirplaneItem[] = Array.isArray((airplanesRes as any)?.data)
-          ? (airplanesRes as any).data
-          : []
+        const airportList: AirportItem[] =
+          airportsRes.data?.data || (Array.isArray(airportsRes.data) ? airportsRes.data : [])
+        const airlineList: AirlineItem[] =
+          airlinesRes.data?.data || (Array.isArray(airlinesRes.data) ? airlinesRes.data : [])
+        const airplaneList: AirplaneItem[] =
+          airplanesRes.data?.data || (Array.isArray(airplanesRes.data) ? airplanesRes.data : [])
 
         setAirports(airportList)
         setAirlines(airlineList)
@@ -111,7 +112,9 @@ export default function FlightFormPage() {
         // Set default airline & airplane
         if (!isEdit && airlineList.length > 0) {
           setAirlineId(airlineList[0].id)
-          const matchedPlanes = airplaneList.filter((p) => p.airlineId === airlineList[0].id)
+          const matchedPlanes = airplaneList.filter(
+            (p) => (p.airlineId ?? p.airline_id) === airlineList[0].id
+          )
           if (matchedPlanes.length > 0) {
             setAirplaneId(matchedPlanes[0].id)
           }
@@ -120,7 +123,7 @@ export default function FlightFormPage() {
         // If Edit mode, fetch current flight schedule
         if (isEdit && id) {
           const flightRes: any = await api.get(`/admin/flights/${id}`)
-          const data = flightRes?.data
+          const data = flightRes?.data?.data || flightRes?.data
           if (data) {
             setFlightNumber(data.flightNumber || '')
             setAirlineId(data.airline?.id || '')
@@ -160,7 +163,7 @@ export default function FlightFormPage() {
   // Filter airplanes by selected airline
   const filteredAirplanes = useMemo(() => {
     if (!airlineId) return airplanes
-    return airplanes.filter((p) => p.airlineId === Number(airlineId))
+    return airplanes.filter((p) => (p.airlineId ?? p.airline_id) === Number(airlineId))
   }, [airplanes, airlineId])
 
   // Current selected airplane object
@@ -176,13 +179,15 @@ export default function FlightFormPage() {
   // Total seat capacity
   const totalSeats = useMemo(() => {
     if (!currentAirplane) return 180
-    return (currentAirplane.totalSeatEconomy || 0) + (currentAirplane.totalSeatBusiness || 0)
+    const eco = currentAirplane.totalSeatEconomy ?? currentAirplane.total_seat_economy ?? 0
+    const bus = currentAirplane.totalSeatBusiness ?? currentAirplane.total_seat_business ?? 0
+    return eco + bus
   }, [currentAirplane])
 
   // Handle airline change: also update airplane selection to first matching plane
   const handleAirlineChange = (newAirlineId: number) => {
     setAirlineId(newAirlineId)
-    const matching = airplanes.filter((p) => p.airlineId === newAirlineId)
+    const matching = airplanes.filter((p) => (p.airlineId ?? p.airline_id) === newAirlineId)
     if (matching.length > 0) {
       setAirplaneId(matching[0].id)
     } else {

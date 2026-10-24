@@ -45,14 +45,14 @@ Catatan revisi data real (lihat PRD bagian 8): tugas tambahan ditandai "(revisi 
 
 ## Phase 4: Landing Page, Customer - Search & Booking (Week 4)
 - [x] API: GET /api/routes/popular
-- [ ] UI: Landing page (hero + RouteMap + SearchPanel, rute populer, cara kerja, SeatShowcase, aturan penting, FAQ, footer)
-- [ ] API: flight search (filter tipe dan kelas di server, sort termurah/tercepat/terbaik; filter harga, maskapai, jam berangkat di client). Revisi data real: field status, delay_minutes, value_score, layover_warning; penerbangan cancelled tidak ikut
-- [ ] (revisi data real) API: GET /api/flights/price-calendar untuk date strip (CAL-01)
-- [ ] UI: Search results page dengan filter sidebar (revisi data real: date strip dari price-calendar, sort Terbaik, teks tertunda dan peringatan transit)
-- [ ] UI: Flight detail + seat selection (seat map)
-- [ ] API: create booking (dengan DB transaction untuk lock seat); revisi data real: tolak FLIGHT_CANCELLED
-- [ ] UI: Form data penumpang (dynamic, multi-passenger)
-- [ ] UI: Checkout summary page
+- [x] UI: Landing page (hero + RouteMap + SearchPanel, rute populer, cara kerja, SeatShowcase, aturan penting, FAQ, footer)
+- [x] API: flight search (filter tipe dan kelas di server, sort termurah/tercepat/terbaik; filter harga, maskapai, jam berangkat di client). Revisi data real: field status, delay_minutes, value_score, layover_warning; penerbangan cancelled tidak ikut
+- [x] (revisi data real) API: GET /api/flights/price-calendar untuk date strip (CAL-01)
+- [x] UI: Search results page dengan filter sidebar (revisi data real: date strip dari price-calendar, sort Terbaik, teks tertunda dan peringatan transit)
+- [x] UI: Flight detail + seat selection (seat map)
+- [x] API: create booking (dengan DB transaction untuk lock seat); revisi data real: tolak FLIGHT_CANCELLED
+- [x] UI: Form data penumpang (dynamic, multi-passenger)
+- [x] UI: Checkout summary page
 
 ## Phase 5: Payment & E-Ticket (Week 5)
 - [ ] Integrasi Midtrans Snap (create transaction)
@@ -71,16 +71,16 @@ Catatan revisi data real (lihat PRD bagian 8): tugas tambahan ditandai "(revisi 
 - [ ] Generate boarding pass PDF
 - [ ] UI: Check-in flow page (revisi data real: nonaktif jika penerbangan dibatalkan, jam boarding mengikuti keterlambatan)
 - [ ] (revisi data real) Check-in menolak FLIGHT_CANCELLED
-- [ ] (revisi data real) Job sync-status tiap 30 menit + endpoint POST /api/admin/provider/sync-status (DAT-06)
+- [x] (revisi data real) Job sync-status tiap 30 menit + endpoint POST /api/admin/provider/sync-status (DAT-06)
 
 ## Phase 7: Staff & Refund (Week 7)
 - [ ] API: daftar penerbangan hari ini + manifest per flight (staff)
-- [ ] API: admin users (buat staff, ubah role, nonaktifkan) + admin dashboard
+- [x] API: admin users (buat staff, ubah role, nonaktifkan) + admin dashboard
 - [ ] API: verify boarding (scan/input code)
 - [ ] UI: Staff dashboard + manifest page
 - [ ] API: refund request (customer) + approve/reject (admin); revisi data real: RFD-05 untuk penerbangan dibatalkan (tanpa batas H-6, jumlah penuh, refunds.kind)
 - [ ] UI: Refund request form + status tracking (revisi data real: varian penerbangan dibatalkan sesuai PAGE_PROMPTS B10)
-- [ ] (revisi data real) Layanan notifikasi email delay/cancel + template + dedupe flight_notifications; dipanggil dari sync-status dan dari PUT /api/admin/flights/:id (NTF-01)
+- [x] (revisi data real) Layanan notifikasi email delay/cancel + template + dedupe flight_notifications; dipanggil dari sync-status dan dari PUT /api/admin/flights/:id (NTF-01)
 - [ ] UI: Admin refund management page
 
 ## Phase 8: Testing & Polish (Week 8)

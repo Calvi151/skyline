@@ -107,10 +107,9 @@ export default function DataTablePage<T extends { id: number | string }>({
     setIsLoading(true)
     try {
       const res = await api.get(apiEndpoint)
-      if (res.data?.data) {
-        setData(res.data.data)
-      } else if (Array.isArray(res.data)) {
-        setData(res.data)
+      const list = res.data?.data !== undefined ? res.data.data : res.data
+      if (Array.isArray(list)) {
+        setData(list)
       } else {
         setData(fallbackMockData)
       }
@@ -251,6 +250,18 @@ export default function DataTablePage<T extends { id: number | string }>({
   const openEditModal = (item: T) => {
     setEditingItem(item)
     const itemData: Record<string, any> = { ...item }
+
+    // Auto map between camelCase and snake_case for defined fields
+    fields.forEach((f) => {
+      if (itemData[f.name] === undefined || itemData[f.name] === null) {
+        // Convert snake_case field.name to camelCase (e.g. airline_id -> airlineId)
+        const camelKey = f.name.replace(/_([a-z])/g, (_, letter) => letter.toUpperCase())
+        if (itemData[camelKey] !== undefined && itemData[camelKey] !== null) {
+          itemData[f.name] = itemData[camelKey]
+        }
+      }
+    })
+
     setFormData(itemData)
     setFormErrors({})
     setIsModalOpen(true)
@@ -314,13 +325,21 @@ export default function DataTablePage<T extends { id: number | string }>({
     setIsSubmitting(true)
 
     try {
+      // Build clean payload from defined form fields
+      const payload: Record<string, any> = {}
+      fields.forEach((f) => {
+        if (formData[f.name] !== undefined) {
+          payload[f.name] = formData[f.name]
+        }
+      })
+
       if (editingItem) {
         // UPDATE
-        await api.put(`${apiEndpoint}/${editingItem.id}`, formData)
+        await api.put(`${apiEndpoint}/${editingItem.id}`, payload)
         showToast(`${title} berhasil diperbarui`)
       } else {
         // CREATE
-        await api.post(apiEndpoint, formData)
+        await api.post(apiEndpoint, payload)
         showToast(`${title} baru berhasil disimpan`)
       }
       closeModal()

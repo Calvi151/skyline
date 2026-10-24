@@ -1,9 +1,5 @@
-import { ReactNode } from 'react'
-import { Navigate } from 'react-router-dom'
-import { useAuthStore } from '../store/authStore'
+import { ProtectedRoute as BaseProtectedRoute } from '../components/auth/ProtectedRoute'
 
-export default function ProtectedRoute({ children }: { children: ReactNode }) {
-  const user = useAuthStore((s) => s.user)
-  if (!user) return <Navigate to="/login" replace />
-  return <>{children}</>
-}
+export default BaseProtectedRoute
+export { BaseProtectedRoute as ProtectedRoute }
+

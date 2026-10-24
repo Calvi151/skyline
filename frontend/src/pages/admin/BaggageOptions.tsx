@@ -3,7 +3,8 @@ import DataTablePage, { ColumnDef, FormFieldDef, FilterTab } from '../../compone
 export interface BaggageOptionItem {
   id: number
   name: string
-  weight_kg: number
+  weight_kg?: number
+  weightKg?: number
   price: number | string
   createdAt?: string
 }
@@ -75,12 +76,15 @@ export default function BaggageOptionsPage() {
       key: 'weight_kg',
       label: 'BERAT (KG)',
       sortable: true,
-      render: (item) => (
-        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-tint text-brand-fg font-semibold text-xs tabular-nums">
-          <span className="material-symbols-outlined text-[14px]">scale</span>
-          <span>{item.weight_kg} kg</span>
-        </span>
-      ),
+      render: (item) => {
+        const weight = item.weight_kg ?? item.weightKg ?? 0
+        return (
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-tint text-brand-fg font-semibold text-xs tabular-nums">
+            <span className="material-symbols-outlined text-[14px]">scale</span>
+            <span>{weight} kg</span>
+          </span>
+        )
+      },
     },
     {
       key: 'price',
@@ -123,9 +127,9 @@ export default function BaggageOptionsPage() {
 
   const filterTabs: FilterTab[] = [
     { id: 'all', label: 'Semua Opsi' },
-    { id: 'light', label: 'Ringan (≤ 15 kg)', filterFn: (item: BaggageOptionItem) => item.weight_kg <= 15 },
-    { id: 'standard', label: 'Standar (20 kg)', filterFn: (item: BaggageOptionItem) => item.weight_kg === 20 },
-    { id: 'heavy', label: 'Berat (> 20 kg)', filterFn: (item: BaggageOptionItem) => item.weight_kg > 20 },
+    { id: 'light', label: 'Ringan (≤ 15 kg)', filterFn: (item: BaggageOptionItem) => (item.weight_kg ?? item.weightKg ?? 0) <= 15 },
+    { id: 'standard', label: 'Standar (20 kg)', filterFn: (item: BaggageOptionItem) => (item.weight_kg ?? item.weightKg ?? 0) === 20 },
+    { id: 'heavy', label: 'Berat (> 20 kg)', filterFn: (item: BaggageOptionItem) => (item.weight_kg ?? item.weightKg ?? 0) > 20 },
   ]
 
   return (
@@ -140,10 +144,10 @@ export default function BaggageOptionsPage() {
       filterTabs={filterTabs}
       searchPlaceholder="Cari opsi bagasi atau berat..."
       addButtonText="Tambah Opsi Bagasi"
-      getItemIdentifier={(item: BaggageOptionItem) => `${item.weight_kg}KG`}
+      getItemIdentifier={(item: BaggageOptionItem) => `${item.weight_kg ?? item.weightKg ?? ''}KG`}
       getItemName={(item: BaggageOptionItem) => item.name}
       deleteWarningMessage={(item: BaggageOptionItem) =>
-        `Hapus ${item.name} (${item.weight_kg} kg)? Penumpang yang belum menyelesaikan pembayaran untuk opsi ini dapat terpengaruh.`
+        `Hapus ${item.name} (${item.weight_kg ?? item.weightKg ?? ''} kg)? Penumpang yang belum menyelesaikan pembayaran untuk opsi ini dapat terpengaruh.`
       }
     />
   )

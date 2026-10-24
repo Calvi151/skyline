@@ -126,3 +126,47 @@ export const requireRole = (...allowedRoles: Array<'admin' | 'staff' | 'customer
     }
     await next()
   })
+
+export const optionalAuthMiddleware = createMiddleware<{
+  Variables: {
+    user?: UserContext
+    userId?: number
+  }
+}>(async (c, next) => {
+  const cookieToken = getCookie(c, 'auth')
+  const authHeader = c.req.header('Authorization')
+  const bearerToken = authHeader?.startsWith('Bearer ') ? authHeader.slice(7) : null
+
+  const token = cookieToken || bearerToken
+
+  if (!token) {
+    return next()
+  }
+
+  const jwtSecret = process.env.JWT_SECRET || 'fallback-secret'
+
+  try {
+    const decoded = jwt.verify(token, jwtSecret) as JwtPayload
+    const [user] = await db
+      .select({
+        id: users.id,
+        name: users.name,
+        email: users.email,
+        role: users.role,
+        emailVerifiedAt: users.emailVerifiedAt,
+        isActive: users.isActive,
+      })
+      .from(users)
+      .where(eq(users.id, decoded.userId))
+      .limit(1)
+
+    if (user && user.isActive !== false) {
+      c.set('user', user)
+      c.set('userId', user.id)
+    }
+  } catch {
+    // ignore invalid token for optional auth
+  }
+
+  await next()
+})

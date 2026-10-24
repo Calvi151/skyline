@@ -4,6 +4,7 @@ import { cors } from 'hono/cors'
 import { serve } from '@hono/node-server'
 import authRoute from './routes/auth.route.js'
 import bookingsRoute from './routes/customer/bookings.route.js'
+import customerFlightsRoute from './routes/customer/flights.route.js'
 import airportsRoute from './routes/admin/airports.route.js'
 import airlinesRoute from './routes/admin/airlines.route.js'
 import airplanesRoute from './routes/admin/airplanes.route.js'
@@ -14,6 +15,9 @@ import providerRoute from './routes/admin/provider.route.js'
 import dashboardRoute from './routes/admin/dashboard.route.js'
 import usersRoute from './routes/admin/users.route.js'
 import refundsRoute from './routes/admin/refunds.route.js'
+
+import checkinRoute from './routes/customer/checkin.route.js'
+import paymentRoute from './routes/payment.route.js'
 
 const app = new Hono()
 
@@ -30,7 +34,10 @@ app.get('/', (c) => c.json({ error: false, data: { message: 'SkyBook API' } }))
 
 // Mount API routes
 app.route('/api/auth', authRoute)
+app.route('/api/flights', customerFlightsRoute)
 app.route('/api/bookings', bookingsRoute)
+app.route('/api/checkin', checkinRoute)
+app.route('/api/payments', paymentRoute)
 
 // Public Reference Data
 app.route('/api', publicRoute)

@@ -5,7 +5,7 @@ import {
   flightSegments,
   bookings,
 } from '../db/schema.js'
-import { aeroDataBoxProvider } from '../providers/aerodatabox.provider.js'
+import { getActiveFlightProvider } from '../providers/index.js'
 import { flightNotificationService } from '../services/flight-notification.service.js'
 
 interface SyncResult {
@@ -83,9 +83,10 @@ export async function syncStatusJob(specificScheduleId?: number): Promise<SyncRe
 
       const depDate = segments[0].departureTime.toISOString().split('T')[0]
 
+      const provider = getActiveFlightProvider()
       let statusData
       try {
-        statusData = await aeroDataBoxProvider.getFlightStatus(sched.flightNumber, depDate)
+        statusData = await provider.getFlightStatus(sched.flightNumber, depDate)
         result.units_used++
       } catch (err: any) {
         if (err.message === 'PROVIDER_QUOTA_EXCEEDED') {

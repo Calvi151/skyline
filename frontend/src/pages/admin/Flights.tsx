@@ -221,9 +221,10 @@ export default function FlightsPage() {
   const loadFlights = async () => {
     setLoading(true)
     try {
-      const res = await api.get<{ data: FlightScheduleItem[] }>('/admin/flights')
-      if (res && Array.isArray(res.data) && res.data.length > 0) {
-        setFlights(res.data)
+      const res = await api.get('/admin/flights')
+      const items = res.data?.data !== undefined ? res.data.data : res.data
+      if (Array.isArray(items)) {
+        setFlights(items)
       } else {
         setFlights(mockFlights)
       }

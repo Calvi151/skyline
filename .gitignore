@@ -1,4 +1,14 @@
 node_modules
 dist
 .env
+.env.*
+*.env
+backend/.env
+frontend/.env
 *.log
+
+# Sensitive or large data files
+backend/airports.json
+backend/airlines.json
+scratch/
+

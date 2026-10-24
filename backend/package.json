@@ -12,7 +12,9 @@
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio",
     "seed:reference": "tsx src/db/seed-reference.ts",
-    "test:coverage": "tsx src/scripts/test-coverage.ts"
+    "seed:json": "tsx src/db/seed-from-json.ts",
+    "test:coverage": "tsx src/scripts/test-coverage.ts",
+    "test:phase4": "tsx src/scripts/test-phase4-api.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

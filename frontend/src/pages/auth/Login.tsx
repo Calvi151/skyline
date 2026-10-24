@@ -181,9 +181,6 @@ export default function Login() {
             <div className="flex items-baseline gap-1">
               <span className="text-xl font-bold tracking-tight text-white font-sans">Sky</span>
               <span className="text-xl font-bold tracking-tight text-sky-200 font-sans">Book</span>
-              <span className="ml-1 text-[9px] font-semibold tracking-wider uppercase px-1.5 py-0.5 rounded bg-white/20 text-white">
-                WINGS
-              </span>
             </div>
           </Link>
 

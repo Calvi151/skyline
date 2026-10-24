@@ -1,4 +1,6 @@
 import { useState } from 'react'
+import { Link } from 'react-router-dom'
+import { useAuthStore } from '../../store/authStore'
 import Navbar from '../../components/layout/Navbar'
 import Footer from '../../components/layout/Footer'
 import RouteMap from '../../components/landing/RouteMap'
@@ -11,6 +13,7 @@ import FAQ from '../../components/landing/FAQ'
 
 export default function Landing() {
   const [highlightedRoute, setHighlightedRoute] = useState<string | null>(null)
+  const { user } = useAuthStore()
 
   return (
     <div className="min-h-screen bg-page font-sans">
@@ -19,6 +22,25 @@ export default function Landing() {
       <main className="w-full pt-[72px] min-h-screen">
         <div className="max-w-content mx-auto px-4 md:px-6">
           <div className="flex flex-col w-full">
+            {/* Admin Quick Action Banner */}
+            {user?.role === 'admin' && (
+              <div className="mt-4 p-3.5 bg-brand/10 border border-brand/25 rounded-control flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs md:text-sm shadow-xs animate-fadeInUp">
+                <div className="flex items-center gap-2.5 text-ink">
+                  <span className="material-symbols-outlined text-brand-fg text-[22px]">admin_panel_settings</span>
+                  <span>
+                    Anda masuk sebagai <strong>Administrator ({user.name})</strong>. Kelola jadwal penerbangan, bandara, dan armada di panel admin.
+                  </span>
+                </div>
+                <Link
+                  to="/admin"
+                  className="shrink-0 inline-flex items-center gap-1.5 px-4 py-2 bg-brand hover:bg-brand-hover text-white rounded-control text-xs font-semibold shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-brand-fg active:scale-[0.98]"
+                >
+                  <span className="material-symbols-outlined text-[16px]">dashboard</span>
+                  <span>Ke Dashboard Admin</span>
+                </Link>
+              </div>
+            )}
+
             {/* ─── SECTION 1: HERO ─── */}
             <section className="relative w-full rounded-ticket p-6 md:p-10 bg-gradient-to-b from-page to-sky-end overflow-visible mt-6">
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 lg:gap-12 items-center mb-8">

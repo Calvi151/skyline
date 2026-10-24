@@ -1,11 +1,12 @@
 import 'dotenv/config'
-import { aeroDataBoxProvider } from '../providers/aerodatabox.provider.js'
+import { getActiveFlightProvider } from '../providers/index.js'
 import { quotaGuardService } from '../services/quota-guard.service.js'
 
 async function runCoverageTest() {
-  console.log('=== UJI CAKUPAN PENYEDIA PENERBANGAN (DAT-02, DAT-07) ===')
+  const provider = getActiveFlightProvider()
+  console.log(`=== UJI CAKUPAN PENYEDIA PENERBANGAN: ${provider.name.toUpperCase()} (DAT-02, DAT-07) ===`)
 
-  const usage = await quotaGuardService.getUsage(aeroDataBoxProvider.name)
+  const usage = await quotaGuardService.getUsage(provider.name)
   console.log(`[Status Kuota Bulan ${usage.period}] Pemakaian: ${usage.units_used} / ${usage.monthly_limit} unit (${usage.percent}%)`)
 
   const testRoutes = [
@@ -17,16 +18,17 @@ async function runCoverageTest() {
   ]
 
   const today = new Date()
+  today.setDate(today.getDate() + 7) // 7 hari ke depan untuk pencarian realistis
   const fromDate = today.toISOString().split('T')[0]
-  const tomorrow = new Date(today.getTime() + 24 * 60 * 60 * 1000)
-  const toDate = tomorrow.toISOString().split('T')[0]
+  const nextDay = new Date(today.getTime() + 24 * 60 * 60 * 1000)
+  const toDate = nextDay.toISOString().split('T')[0]
 
   console.log(`\nRentang Uji: ${fromDate} s/d ${toDate}\n`)
 
   for (const route of testRoutes) {
     try {
       console.log(`Menguji rute: ${route.name}...`)
-      const schedules = await aeroDataBoxProvider.getSchedulesByRoute(
+      const schedules = await provider.getSchedulesByRoute(
         route.origin,
         route.dest,
         fromDate,
@@ -43,7 +45,7 @@ async function runCoverageTest() {
     }
   }
 
-  const updatedUsage = await quotaGuardService.getUsage(aeroDataBoxProvider.name)
+  const updatedUsage = await quotaGuardService.getUsage(provider.name)
   console.log(`\n[Selesai] Pemakaian Kuota Terbaru: ${updatedUsage.units_used} / ${updatedUsage.monthly_limit} unit (${updatedUsage.percent}%)`)
 }
 

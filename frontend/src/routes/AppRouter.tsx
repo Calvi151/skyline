@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
 import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
+import { ProtectedRoute, RoleRoute } from '../components/auth/ProtectedRoute'
 import Landing from '../pages/customer/Landing'
 import CheckIn from '../pages/customer/CheckIn'
 import CustomerDashboard from '../pages/customer/CustomerDashboard'
@@ -18,10 +20,14 @@ import VerifyEmail from '../pages/auth/VerifyEmail'
 import ComponentsShowcase from '../pages/dev/ComponentsShowcase'
 import Navbar from '../components/layout/Navbar'
 import Footer from '../components/layout/Footer'
+import SearchResults from '../pages/customer/SearchResults'
+import BookingDetail from '../pages/customer/BookingDetail'
+import Checkout from '../pages/customer/Checkout'
 
 /** Redirect kalau sudah login dan coba akses /login atau /register */
 function GuestOnly({ children }: { children: React.ReactNode }) {
-  const user = useAuthStore((s) => s.user)
+  const { user, isLoading, isInitialized } = useAuthStore()
+  if (isLoading && !isInitialized) return null
   if (user) {
     if (user.role === 'admin') return <Navigate to="/admin" replace />
     if (user.role === 'staff') return <Navigate to="/staff" replace />
@@ -71,6 +77,12 @@ function NotFound() {
 }
 
 export default function AppRouter() {
+  const checkAuth = useAuthStore((s) => s.checkAuth)
+
+  useEffect(() => {
+    checkAuth()
+  }, [checkAuth])
+
   return (
     <BrowserRouter>
       <Routes>
@@ -78,7 +90,9 @@ export default function AppRouter() {
         <Route path="/" element={<Landing />} />
         <Route path="/check-in" element={<CheckIn />} />
         <Route path="/checkin" element={<CheckIn />} />
-        <Route path="/search" element={<div className="p-8 pt-24 text-ink">Hasil Pencarian (segera hadir)</div>} />
+        <Route path="/search" element={<SearchResults />} />
+        <Route path="/flights/:id" element={<BookingDetail />} />
+        <Route path="/checkout/:bookingId" element={<Checkout />} />
         <Route path="/dev/components" element={<ComponentsShowcase />} />
 
         {/* Auth (Guest Only — sudah login = redirect ke dashboard) */}
@@ -87,23 +101,93 @@ export default function AppRouter() {
         <Route path="/check-email" element={<CheckEmail />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
 
-        {/* Customer */}
-        <Route path="/dashboard" element={<CustomerDashboard />} />
+        {/* Customer Dashboard */}
+        <Route
+          path="/dashboard"
+          element={
+            <ProtectedRoute>
+              <CustomerDashboard />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Admin - Master Data (Phase 2 & B14 Stitch Design) */}
-        <Route path="/admin" element={<AdminDashboard />} />
-        <Route path="/admin/airports" element={<AirportsPage />} />
-        <Route path="/admin/airlines" element={<AirlinesPage />} />
-        <Route path="/admin/airplanes" element={<AirplanesPage />} />
-        <Route path="/admin/baggage-options" element={<BaggageOptionsPage />} />
+        <Route
+          path="/admin"
+          element={
+            <RoleRoute allowedRoles={['admin']}>
+              <AdminDashboard />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="/admin/airports"
+          element={
+            <RoleRoute allowedRoles={['admin']}>
+              <AirportsPage />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="/admin/airlines"
+          element={
+            <RoleRoute allowedRoles={['admin']}>
+              <AirlinesPage />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="/admin/airplanes"
+          element={
+            <RoleRoute allowedRoles={['admin']}>
+              <AirplanesPage />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="/admin/baggage-options"
+          element={
+            <RoleRoute allowedRoles={['admin']}>
+              <BaggageOptionsPage />
+            </RoleRoute>
+          }
+        />
 
         {/* Admin - Flight Schedules (Phase 3 & Stitch B15/B16 Design) */}
-        <Route path="/admin/flights" element={<FlightsPage />} />
-        <Route path="/admin/flights/new" element={<FlightFormPage />} />
-        <Route path="/admin/flights/:id/edit" element={<FlightFormPage />} />
+        <Route
+          path="/admin/flights"
+          element={
+            <RoleRoute allowedRoles={['admin']}>
+              <FlightsPage />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="/admin/flights/new"
+          element={
+            <RoleRoute allowedRoles={['admin']}>
+              <FlightFormPage />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="/admin/flights/:id/edit"
+          element={
+            <RoleRoute allowedRoles={['admin']}>
+              <FlightFormPage />
+            </RoleRoute>
+          }
+        />
 
         {/* Staff */}
-        <Route path="/staff" element={<StaffDashboard />} />
+        <Route
+          path="/staff"
+          element={
+            <RoleRoute allowedRoles={['staff', 'admin']}>
+              <StaffDashboard />
+            </RoleRoute>
+          }
+        />
 
         {/* Catch-all */}
         <Route path="*" element={<NotFound />} />
@@ -111,3 +195,4 @@ export default function AppRouter() {
     </BrowserRouter>
   )
 }
+
