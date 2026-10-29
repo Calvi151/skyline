@@ -4,7 +4,6 @@ import { useAuthStore } from '../store/authStore'
 import { ProtectedRoute, RoleRoute } from '../components/auth/ProtectedRoute'
 import Landing from '../pages/customer/Landing'
 import CheckIn from '../pages/customer/CheckIn'
-import CustomerDashboard from '../pages/customer/CustomerDashboard'
 import AdminDashboard from '../pages/admin/Dashboard'
 import AirportsPage from '../pages/admin/Airports'
 import AirlinesPage from '../pages/admin/Airlines'
@@ -23,6 +22,9 @@ import Footer from '../components/layout/Footer'
 import SearchResults from '../pages/customer/SearchResults'
 import BookingDetail from '../pages/customer/BookingDetail'
 import Checkout from '../pages/customer/Checkout'
+import PaymentResult from '../pages/customer/PaymentResult'
+import MyBookings from '../pages/customer/MyBookings'
+import BookingTicket from '../pages/customer/BookingTicket'
 
 /** Redirect kalau sudah login dan coba akses /login atau /register */
 function GuestOnly({ children }: { children: React.ReactNode }) {
@@ -90,9 +92,13 @@ export default function AppRouter() {
         <Route path="/" element={<Landing />} />
         <Route path="/check-in" element={<CheckIn />} />
         <Route path="/checkin" element={<CheckIn />} />
+        <Route path="/check-in/:bookingId" element={<CheckIn />} />
+        <Route path="/checkin/:bookingId" element={<CheckIn />} />
         <Route path="/search" element={<SearchResults />} />
         <Route path="/flights/:id" element={<BookingDetail />} />
         <Route path="/checkout/:bookingId" element={<Checkout />} />
+        <Route path="/payment/result" element={<PaymentResult />} />
+        <Route path="/payment/finish" element={<PaymentResult />} />
         <Route path="/dev/components" element={<ComponentsShowcase />} />
 
         {/* Auth (Guest Only — sudah login = redirect ke dashboard) */}
@@ -101,12 +107,28 @@ export default function AppRouter() {
         <Route path="/check-email" element={<CheckEmail />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
 
-        {/* Customer Dashboard */}
+        {/* Customer Bookings / Dashboard (Phase 5 & Stitch B9 / B10) */}
         <Route
           path="/dashboard"
           element={
             <ProtectedRoute>
-              <CustomerDashboard />
+              <MyBookings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/bookings"
+          element={
+            <ProtectedRoute>
+              <MyBookings />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/bookings/:id"
+          element={
+            <ProtectedRoute>
+              <BookingTicket />
             </ProtectedRoute>
           }
         />
@@ -195,4 +217,3 @@ export default function AppRouter() {
     </BrowserRouter>
   )
 }
-

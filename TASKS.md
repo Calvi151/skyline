@@ -55,22 +55,22 @@ Catatan revisi data real (lihat PRD bagian 8): tugas tambahan ditandai "(revisi 
 - [x] UI: Checkout summary page
 
 ## Phase 5: Payment & E-Ticket (Week 5)
-- [ ] Integrasi Midtrans Snap (create transaction)
-- [ ] Implementasi webhook notification handler
-- [ ] Logic update booking status berdasarkan payment result
-- [ ] Generate booking_code (PNR)
-- [ ] Generate e-ticket PDF (pdf-lib) + QR code + endpoint GET /api/bookings/:id/e-ticket
-- [ ] Cron job auto-cancel booking pending > 1 jam (PAY-04)
-- [ ] UI: Payment redirect flow
-- [ ] UI: My Bookings page (list + detail + download e-ticket); revisi data real: teks tertunda, chip dibatalkan, panel catatan di detail
+- [x] Integrasi Midtrans Snap (create transaction)
+- [x] Implementasi webhook notification handler
+- [x] Logic update booking status berdasarkan payment result
+- [x] Generate booking_code (PNR)
+- [x] Generate e-ticket PDF (pdf-lib) + QR code + endpoint GET /api/bookings/:id/e-ticket
+- [x] Cron job auto-cancel booking pending > 1 jam (PAY-04)
+- [x] UI: Payment redirect flow
+- [x] UI: My Bookings page (list + detail + download e-ticket); revisi data real: teks tertunda, chip dibatalkan, panel catatan di detail
 
 ## Phase 6: Self Check-in (Week 6)
-- [ ] API: check-in endpoint (confirm/ganti kursi)
-- [ ] Logic validasi waktu check-in (H-24 jam)
-- [ ] Generate boarding_pass_code + QR
-- [ ] Generate boarding pass PDF
-- [ ] UI: Check-in flow page (revisi data real: nonaktif jika penerbangan dibatalkan, jam boarding mengikuti keterlambatan)
-- [ ] (revisi data real) Check-in menolak FLIGHT_CANCELLED
+- [x] API: check-in endpoint (confirm/ganti kursi)
+- [x] Logic validasi waktu check-in (H-24 jam)
+- [x] Generate boarding_pass_code + QR
+- [x] Generate boarding pass PDF
+- [x] UI: Check-in flow page (revisi data real: nonaktif jika penerbangan dibatalkan, jam boarding mengikuti keterlambatan)
+- [x] (revisi data real) Check-in menolak FLIGHT_CANCELLED
 - [x] (revisi data real) Job sync-status tiap 30 menit + endpoint POST /api/admin/provider/sync-status (DAT-06)
 
 ## Phase 7: Staff & Refund (Week 7)

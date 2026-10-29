@@ -18,6 +18,8 @@ import refundsRoute from './routes/admin/refunds.route.js'
 
 import checkinRoute from './routes/customer/checkin.route.js'
 import paymentRoute from './routes/payment.route.js'
+import customerRefundsRoute from './routes/customer/refunds.route.js'
+import { startExpireBookingsCron } from './jobs/expire-bookings.js'
 
 const app = new Hono()
 
@@ -36,8 +38,11 @@ app.get('/', (c) => c.json({ error: false, data: { message: 'SkyBook API' } }))
 app.route('/api/auth', authRoute)
 app.route('/api/flights', customerFlightsRoute)
 app.route('/api/bookings', bookingsRoute)
+app.route('/api/check-in', checkinRoute)
 app.route('/api/checkin', checkinRoute)
+app.route('/api/payment', paymentRoute)
 app.route('/api/payments', paymentRoute)
+app.route('/api/refunds', customerRefundsRoute)
 
 // Public Reference Data
 app.route('/api', publicRoute)
@@ -80,8 +85,18 @@ app.onError((err, c) => {
 
 const port = Number(process.env.PORT ?? 3000)
 
-serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`Server running on http://localhost:${info.port}`)
-})
+// Hanya jalankan listener HTTP & cron jika dijalankan sebagai entrypoint utama
+const isMain = Boolean(
+  process.argv[1] &&
+    (process.argv[1].endsWith('index.ts') || process.argv[1].endsWith('index.js')),
+)
+
+if (isMain) {
+  startExpireBookingsCron()
+
+  serve({ fetch: app.fetch, port }, (info) => {
+    console.log(`Server running on http://localhost:${info.port}`)
+  })
+}
 
 export default app

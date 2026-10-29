@@ -15,6 +15,7 @@ import {
   payments,
 } from '../../db/schema.js'
 import { authMiddleware, requireVerifiedEmail } from '../../middleware/auth.middleware.js'
+import { pdfService } from '../../services/pdf.service.js'
 import type { UserContext } from '../../types/index.js'
 
 const bookingsRoute = new Hono<{
@@ -545,6 +546,156 @@ bookingsRoute.get('/:id', async (c) => {
         : null,
     },
   })
+})
+
+/**
+ * GET /api/bookings/:id/e-ticket
+ * Unduh E-Ticket dalam format PDF dengan QR Code (ETK-02, ETK-03)
+ * Wajib autentikasi, hanya pemilik booking (atau admin/staff), booking harus berstatus 'paid'
+ */
+bookingsRoute.get('/:id/e-ticket', async (c) => {
+  const userId = c.get('userId')
+  const userRole = c.get('user')?.role
+  const id = Number(c.req.param('id'))
+
+  if (isNaN(id)) {
+    return c.json({ error: true, message: 'ID booking tidak valid', code: 'INVALID_ID' }, 400)
+  }
+
+  const [booking] = await db
+    .select()
+    .from(bookings)
+    .where(eq(bookings.id, id))
+    .limit(1)
+
+  if (!booking) {
+    return c.json({ error: true, message: 'Pemesanan tidak ditemukan', code: 'NOT_FOUND' }, 404)
+  }
+
+  // Ownership check
+  if (booking.userId !== userId && userRole !== 'admin' && userRole !== 'staff') {
+    return c.json(
+      { error: true, message: 'Anda tidak memiliki hak akses untuk e-tiket ini', code: 'FORBIDDEN' },
+      403,
+    )
+  }
+
+  // Wajib status 'paid'
+  if (booking.status !== 'paid') {
+    return c.json(
+      {
+        error: true,
+        message: 'E-tiket hanya dapat diunduh untuk pesanan yang telah dibayar (status paid)',
+        code: 'BOOKING_NOT_PAID',
+      },
+      400,
+    )
+  }
+
+  // Ambil detail jadwal penerbangan
+  const [schedule] = await db
+    .select()
+    .from(flightSchedules)
+    .where(eq(flightSchedules.id, booking.flightScheduleId!))
+    .limit(1)
+
+  const [allAirports, [airline]] = await Promise.all([
+    db.select().from(airports),
+    schedule?.airlineId
+      ? db.select().from(airlines).where(eq(airlines.id, schedule.airlineId)).limit(1)
+      : [null],
+  ])
+
+  const airportMap = new Map(allAirports.map((a) => [a.id, a]))
+
+  const segments = await db
+    .select()
+    .from(flightSegments)
+    .where(eq(flightSegments.flightScheduleId, booking.flightScheduleId!))
+    .orderBy(asc(flightSegments.segmentOrder))
+
+  // Ambil detail penumpang, kursi, dan opsi bagasi
+  const passRows = await db
+    .select()
+    .from(bookingPassengers)
+    .where(eq(bookingPassengers.bookingId, id))
+
+  const seatIds = passRows.map((p) => p.seatId!).filter(Boolean)
+  const baggageIds = passRows.map((p) => p.baggageOptionId!).filter(Boolean)
+
+  const [seatRows, baggageRows] = await Promise.all([
+    seatIds.length > 0 ? db.select().from(seats).where(inArray(seats.id, seatIds)) : [],
+    baggageIds.length > 0 ? db.select().from(baggageOptions).where(inArray(baggageOptions.id, baggageIds)) : [],
+  ])
+
+  const seatMap = new Map(seatRows.map((s) => [s.id, s]))
+  const baggageMap = new Map(baggageRows.map((b) => [b.id, b]))
+
+  // Ambil detail pembayaran terakhir
+  const [payment] = await db
+    .select()
+    .from(payments)
+    .where(eq(payments.bookingId, id))
+    .orderBy(desc(payments.id))
+    .limit(1)
+
+  try {
+    const pdfBytes = await pdfService.generateETicket({
+      bookingCode: booking.bookingCode,
+      bookingDate: booking.createdAt ? booking.createdAt.toISOString() : new Date().toISOString(),
+      totalPrice: Number(booking.totalPrice),
+      status: booking.status,
+      airlineName: airline?.name || 'SkyBook Airline',
+      airlineCode: airline?.code || null,
+      flightNumber: schedule?.flightNumber || 'SB-100',
+      flightType: schedule?.flightType || 'direct',
+      delayMinutes: schedule?.delayMinutes || 0,
+      flightStatus: schedule?.status || 'scheduled',
+      segments: segments.map((s) => {
+        const orig = airportMap.get(s.originAirportId!)
+        const dest = airportMap.get(s.destinationAirportId!)
+        return {
+          originCode: orig?.code || 'ORIG',
+          originCity: orig?.city || 'Origin',
+          originName: orig?.name || 'Origin Airport',
+          destCode: dest?.code || 'DEST',
+          destCity: dest?.city || 'Destination',
+          destName: dest?.name || 'Destination Airport',
+          departureTime: s.departureTime.toISOString(),
+          arrivalTime: s.arrivalTime.toISOString(),
+        }
+      }),
+      passengers: passRows.map((p) => {
+        const seat = p.seatId ? seatMap.get(p.seatId) : null
+        const baggage = p.baggageOptionId ? baggageMap.get(p.baggageOptionId) : null
+        return {
+          fullName: p.fullName,
+          idNumber: p.idNumber,
+          gender: p.gender,
+          seatClass: p.seatClass,
+          seatNumber: seat?.seatNumber || null,
+          baggageName: baggage?.name || null,
+          baggageWeight: baggage?.weightKg || null,
+        }
+      }),
+      paymentMethod: payment?.paymentMethod || 'Midtrans',
+      paidAt: payment?.paidAt ? payment.paidAt.toISOString() : null,
+    })
+
+    c.header('Content-Type', 'application/pdf')
+    c.header('Content-Disposition', `attachment; filename="eticket-${booking.bookingCode}.pdf"`)
+    return c.body(Buffer.from(pdfBytes))
+  } catch (err: any) {
+    console.error('[BookingsRoute] Gagal generate e-ticket PDF:', err)
+    return c.json(
+      {
+        error: true,
+        message: 'Gagal membuat file PDF e-tiket',
+        code: 'PDF_GENERATION_FAILED',
+      },
+      500,
+    )
+  }
 })
 
 export default bookingsRoute

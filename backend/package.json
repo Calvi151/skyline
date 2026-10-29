@@ -14,7 +14,9 @@
     "seed:reference": "tsx src/db/seed-reference.ts",
     "seed:json": "tsx src/db/seed-from-json.ts",
     "test:coverage": "tsx src/scripts/test-coverage.ts",
-    "test:phase4": "tsx src/scripts/test-phase4-api.ts"
+    "test:phase4": "tsx src/scripts/test-phase4-api.ts",
+    "test:phase5": "tsx src/scripts/test-phase5-integration.ts",
+    "test:phase6": "tsx src/scripts/test-phase6-integration.ts"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.7",

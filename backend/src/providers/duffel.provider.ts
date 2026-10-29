@@ -191,7 +191,14 @@ export class DuffelProvider implements FlightDataProvider {
         if (!firstSegment) continue
 
         const carrier = firstSegment.operating_carrier || firstSegment.marketing_carrier || {}
-        const airlineCode = (carrier.iata_code || 'GA').toUpperCase()
+        let airlineCode = (carrier.iata_code || 'GA').toUpperCase()
+        // Duffel sandbox menggunakan kode uji 'ZZ' (yang di airlines.json terdaftar sebagai American Eagle).
+        // Kita petakan ke maskapai yang relevan dengan rute penerbangan.
+        if (airlineCode === 'ZZ') {
+          if (origin === 'DOH' || dest === 'DOH') airlineCode = 'QR'
+          else if (origin === 'SIN' || dest === 'SIN') airlineCode = 'SQ'
+          else airlineCode = 'GA'
+        }
         const flightNum = (
           firstSegment.operating_carrier_flight_number ||
           firstSegment.marketing_carrier_flight_number ||

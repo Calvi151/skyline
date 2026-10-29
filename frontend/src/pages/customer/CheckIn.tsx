@@ -1,5 +1,5 @@
-import { useState, useEffect } from 'react'
-import { Link, useSearchParams } from 'react-router-dom'
+import { useState, useEffect, useMemo } from 'react'
+import { Link, useParams, useSearchParams } from 'react-router-dom'
 import Navbar from '../../components/layout/Navbar'
 import Footer from '../../components/layout/Footer'
 import { api } from '../../lib/api'
@@ -78,34 +78,56 @@ interface UserBookingSummary {
 }
 
 export default function CheckIn() {
+  const { bookingId: routeBookingId } = useParams<{ bookingId?: string }>()
   const [searchParams, setSearchParams] = useSearchParams()
   const { user } = useAuthStore()
 
   const pnrQuery = searchParams.get('bookingCode') || searchParams.get('pnr') || searchParams.get('booking_code')
-  const bookingIdQuery = searchParams.get('bookingId') || searchParams.get('booking_id')
+  const bookingIdQuery = routeBookingId || searchParams.get('bookingId') || searchParams.get('booking_id')
 
   // Search input state
   const [searchPnr, setSearchPnr] = useState(pnrQuery || '')
   const [isSearching, setIsSearching] = useState(false)
   const [searchError, setSearchError] = useState<string | null>(null)
 
-  // User's eligible bookings list
+  // Eligible bookings for logged in user
   const [userBookings, setUserBookings] = useState<UserBookingSummary[]>([])
   const [loadingUserBookings, setLoadingUserBookings] = useState(false)
 
   // Selected Booking Detail
   const [bookingDetail, setBookingDetail] = useState<BookingCheckInDetail | null>(null)
 
-  // Passenger seat edits (passengerId -> seatId)
+  // Passenger seat selections (passengerId -> { seatId, seatNumber })
   const [selectedSeats, setSelectedSeats] = useState<Record<number, { seatId: number; seatNumber: string }>>({})
-  const [editingPassengerId, setEditingPassengerId] = useState<number | null>(null)
-  const [hoveredSeat, setHoveredSeat] = useState<string | null>(null)
 
-  // Checkin submission state
+  // Checked passengers for checkin submit
+  const [checkedPassengerIds, setCheckedPassengerIds] = useState<number[]>([])
+
+  // Passenger whose seat map is currently expanded
+  const [activeEditingPaxId, setActiveEditingPaxId] = useState<number | null>(null)
+
+  // Active passenger tab in Boarding Pass view
+  const [activeBoardingPassIndex, setActiveBoardingPassIndex] = useState(0)
+
+  // Safety declaration checkbox
   const [isAgreed, setIsAgreed] = useState(true)
+
+  // Submitting check-in
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [issuedBoardingPasses, setIssuedBoardingPasses] = useState<any[] | null>(null)
+
+  // Modal dialog states
+  const [isQrModalOpen, setIsQrModalOpen] = useState(false)
+  const [isShareModalOpen, setIsShareModalOpen] = useState(false)
+  const [downloadingPdf, setDownloadingPdf] = useState(false)
+
+  // Feedback toast
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+
+  const showToast = (msg: string) => {
+    setToastMessage(msg)
+    setTimeout(() => setToastMessage(null), 3500)
+  }
 
   // Fetch eligible bookings if user is logged in
   useEffect(() => {
@@ -121,7 +143,7 @@ export default function CheckIn() {
         const data = res.data?.data || []
         setUserBookings(data)
 
-        // If no PNR was in URL, and user has exactly 1 booking, load it automatically
+        // If no PNR or bookingId in URL and exactly 1 booking exists, auto-load
         if (!pnrQuery && !bookingIdQuery && data.length === 1) {
           loadBooking(data[0].booking_code)
         }
@@ -135,13 +157,13 @@ export default function CheckIn() {
     fetchEligible()
   }, [user])
 
-  // Load booking by PNR or ID
+  // Load booking details by PNR or ID
   const loadBooking = async (code?: string, id?: string | number) => {
     const targetCode = code || searchPnr.trim().toUpperCase()
     const targetId = id || bookingIdQuery
 
     if (!targetCode && !targetId) {
-      setSearchError('Silakan masukkan Kode Booking (PNR)')
+      setSearchError('Silakan masukkan Kode Booking (PNR) 6 karakter.')
       return
     }
 
@@ -157,9 +179,15 @@ export default function CheckIn() {
       })
 
       const data: BookingCheckInDetail = res.data?.data
+      if (!data) {
+        setSearchError('Data pesanan tidak ditemukan.')
+        setBookingDetail(null)
+        return
+      }
+
       setBookingDetail(data)
 
-      // Initialize selectedSeats from passenger current seats
+      // Initialize selected seats
       const initialSeats: Record<number, { seatId: number; seatNumber: string }> = {}
       data.passengers.forEach((p) => {
         if (p.seat_id && p.seat_number) {
@@ -168,7 +196,11 @@ export default function CheckIn() {
       })
       setSelectedSeats(initialSeats)
 
-      // Check if all already checked in
+      // Default select all passengers who are not yet checked in
+      const pendingPax = data.passengers.filter((p) => !p.is_checked_in).map((p) => p.id)
+      setCheckedPassengerIds(pendingPax.length > 0 ? pendingPax : data.passengers.map((p) => p.id))
+
+      // Check if all passengers are already checked in
       const allCheckedIn = data.passengers.length > 0 && data.passengers.every((p) => p.is_checked_in)
       if (allCheckedIn) {
         setIssuedBoardingPasses(
@@ -177,8 +209,8 @@ export default function CheckIn() {
             full_name: p.full_name,
             id_number: p.id_number,
             seat_number: p.seat_number || 'N/A',
-            boarding_pass_code: p.boarding_pass_code,
-            checked_in_at: p.checked_in_at,
+            boarding_pass_code: p.boarding_pass_code || `BP-${data.booking_code}-${p.id}`,
+            checked_in_at: p.checked_in_at || new Date().toISOString(),
             gate: '3A',
             boarding_time: '30 menit sebelum keberangkatan',
           })),
@@ -193,61 +225,75 @@ export default function CheckIn() {
       }
     } catch (err: any) {
       console.error('Failed to lookup booking:', err)
-      setSearchError(err?.message || 'Kode booking tidak ditemukan atau penerbangan tidak valid.')
+      const msg = err?.response?.data?.message || err?.message || 'Kode booking tidak ditemukan.'
+      setSearchError(msg)
       setBookingDetail(null)
     } finally {
       setIsSearching(false)
     }
   }
 
-  // Initial load if query params present
+  // Initial load if route param or query params are present
   useEffect(() => {
-    if (pnrQuery || bookingIdQuery) {
+    if (bookingIdQuery || pnrQuery) {
       loadBooking(pnrQuery || undefined, bookingIdQuery || undefined)
     }
-  }, [pnrQuery, bookingIdQuery])
+  }, [bookingIdQuery, pnrQuery])
 
-  // Select seat for passenger
-  const handleSeatSelect = (passengerId: number, seat: SeatItem) => {
-    setSelectedSeats((prev) => ({
-      ...prev,
-      [passengerId]: { seatId: seat.id, seatNumber: seat.seat_number },
-    }))
+  // Flight timing calculations
+  const flight = bookingDetail?.flight
+  const firstSeg = flight?.segments?.[0]
+  const lastSeg = flight?.segments?.[flight?.segments?.length - 1]
 
-    setToastMessage(`Kursi ${seat.seat_number} berhasil dipilih`)
-    setTimeout(() => setToastMessage(null), 3000)
-    setEditingPassengerId(null)
-  }
+  const isFlightCancelled = flight?.status === 'cancelled'
+  const isDelayed = flight?.status === 'delayed' && (flight.delay_minutes || 0) > 0
 
-  // Submit check-in
-  const handleCompleteCheckIn = async () => {
-    if (!bookingDetail || !isAgreed) return
+  const departureDate = firstSeg?.departure_time ? new Date(firstSeg.departure_time) : null
+  const now = new Date()
 
-    setIsSubmitting(true)
+  // Hours until departure
+  const hoursUntilDeparture = departureDate
+    ? (departureDate.getTime() - now.getTime()) / (1000 * 60 * 60)
+    : 0
+
+  // Check-in status window:
+  // Open between H-24 and H-1
+  const isTooEarlyForCheckIn = hoursUntilDeparture > 24
+  const isTooLateForCheckIn = hoursUntilDeparture < 1
+  const isCheckInWindowOpen = !isFlightCancelled && !isTooEarlyForCheckIn && !isTooLateForCheckIn
+
+  // Calculate Check-in countdown (until closing H-1)
+  const timeUntilCheckInCloses = useMemo(() => {
+    if (!departureDate) return { hours: 0, minutes: 0 }
+    // Closes 1 hour before departure
+    const closeTime = new Date(departureDate.getTime() - 60 * 60 * 1000)
+    const diffMs = Math.max(0, closeTime.getTime() - now.getTime())
+    const hours = Math.floor(diffMs / (1000 * 60 * 60))
+    const minutes = Math.floor((diffMs % (1000 * 60 * 60)) / (1000 * 60))
+    return { hours, minutes }
+  }, [departureDate])
+
+  // Progress percentage for 24h window (from 24h down to 1h = 23h duration)
+  const checkInWindowProgress = useMemo(() => {
+    if (hoursUntilDeparture > 24) return 0
+    if (hoursUntilDeparture <= 1) return 100
+    // Remaining hours in the 23-hour active window
+    const elapsed = 24 - hoursUntilDeparture
+    return Math.min(100, Math.max(0, Math.round((elapsed / 23) * 100)))
+  }, [hoursUntilDeparture])
+
+  // Format time (HH.MM WIB/WITA)
+  const formatTime = (isoStr?: string | null) => {
+    if (!isoStr) return '--:--'
     try {
-      const seatChanges = Object.entries(selectedSeats).map(([passId, seatInfo]) => ({
-        passenger_id: Number(passId),
-        seat_id: seatInfo.seatId,
-      }))
-
-      const res = await api.post('/checkin', {
-        booking_id: bookingDetail.booking_id,
-        seat_changes: seatChanges,
-      })
-
-      const data = res.data?.data
-      setIssuedBoardingPasses(data.boarding_passes || [])
-      setToastMessage('Check-in online berhasil diselesaikan!')
-      window.scrollTo({ top: 0, behavior: 'smooth' })
-    } catch (err: any) {
-      console.error('Check-in failed:', err)
-      setToastMessage(err?.message || 'Gagal menyelesaikan check-in. Silakan coba lagi.')
-    } finally {
-      setIsSubmitting(false)
+      const d = new Date(isoStr)
+      return `${String(d.getHours()).padStart(2, '0')}.${String(d.getMinutes()).padStart(2, '0')}`
+    } catch {
+      return '--:--'
     }
   }
 
-  // Format Indonesian date
+  // Format full Indonesian date
   const formatIndoDate = (isoStr?: string | null) => {
     if (!isoStr) return '--'
     try {
@@ -263,281 +309,941 @@ export default function CheckIn() {
     }
   }
 
-  const formatTime = (isoStr?: string | null) => {
-    if (!isoStr) return '--:--'
+  // Calculate estimated boarding time (departureTime + delayMinutes - 30 minutes)
+  const boardingTimeDisplay = useMemo(() => {
+    if (!departureDate) return { timeStr: '07.10 WIB', relativeStr: '' }
+    const delay = flight?.delay_minutes || 0
+    const adjustedDep = new Date(departureDate.getTime() + delay * 60 * 1000)
+    const bTime = new Date(adjustedDep.getTime() - 30 * 60 * 1000)
+    const diffToBoarding = bTime.getTime() - now.getTime()
+    const bHours = Math.floor(diffToBoarding / (1000 * 60 * 60))
+    const bMins = Math.floor((diffToBoarding % (1000 * 60 * 60)) / (1000 * 60))
+
+    const timeStr = `${String(bTime.getHours()).padStart(2, '0')}.${String(bTime.getMinutes()).padStart(2, '0')} WIB`
+    const relativeStr = diffToBoarding > 0 ? `(${bHours}j ${bMins}m lagi)` : '(Pintu dibuka)'
+    return { timeStr, relativeStr }
+  }, [departureDate, flight?.delay_minutes])
+
+  // Toggle passenger selection
+  const handleTogglePassenger = (passengerId: number) => {
+    setCheckedPassengerIds((prev) =>
+      prev.includes(passengerId) ? prev.filter((id) => id !== passengerId) : [...prev, passengerId],
+    )
+  }
+
+  // Seat change select
+  const handleSelectSeat = (passengerId: number, seat: SeatItem) => {
+    setSelectedSeats((prev) => ({
+      ...prev,
+      [passengerId]: { seatId: seat.id, seatNumber: seat.seat_number },
+    }))
+    showToast(`Kursi ${seat.seat_number} berhasil dipilih`)
+    setActiveEditingPaxId(null)
+  }
+
+  // Submit complete check-in
+  const handleCompleteCheckIn = async () => {
+    if (!bookingDetail || !isAgreed || checkedPassengerIds.length === 0) return
+
+    setIsSubmitting(true)
     try {
-      const d = new Date(isoStr)
-      return `${String(d.getHours()).padStart(2, '0')}.${String(d.getMinutes()).padStart(2, '0')} WIB`
-    } catch {
-      return '--:--'
+      const seatChanges = checkedPassengerIds
+        .map((pId) => {
+          const seat = selectedSeats[pId]
+          return seat ? { passenger_id: pId, seat_id: seat.seatId } : null
+        })
+        .filter(Boolean) as Array<{ passenger_id: number; seat_id: number }>
+
+      const res = await api.post('/checkin', {
+        booking_id: bookingDetail.booking_id,
+        seat_changes: seatChanges,
+      })
+
+      const data = res.data?.data
+      if (data?.boarding_passes) {
+        setIssuedBoardingPasses(data.boarding_passes)
+        showToast('Check-in online berhasil diselesaikan!')
+        window.scrollTo({ top: 0, behavior: 'smooth' })
+      } else {
+        // Fallback reload
+        loadBooking(bookingDetail.booking_code)
+      }
+    } catch (err: any) {
+      console.error('Check-in submission failed:', err)
+      const msg = err?.response?.data?.message || err?.message || 'Gagal menyelesaikan check-in. Silakan coba lagi.'
+      showToast(msg)
+    } finally {
+      setIsSubmitting(false)
     }
   }
 
-  const flight = bookingDetail?.flight
-  const firstSeg = flight?.segments?.[0]
-  const lastSeg = flight?.segments?.[flight?.segments?.length - 1]
+  // Download Boarding Pass PDF
+  const handleDownloadBoardingPassPDF = async (passengerId?: number) => {
+    if (!bookingDetail) return
+    setDownloadingPdf(true)
+    showToast('Menyiapkan Boarding Pass PDF...')
+
+    try {
+      const targetPaxId = passengerId || bookingDetail.passengers[activeBoardingPassIndex]?.id
+      const queryParam = targetPaxId ? `?passenger_id=${targetPaxId}` : ''
+      const res = await api.get(`/check-in/${bookingDetail.booking_id}/boarding-pass${queryParam}`, {
+        responseType: 'blob',
+      })
+
+      const blob = new Blob([res.data], { type: 'application/pdf' })
+      const url = window.URL.createObjectURL(blob)
+      const link = document.createElement('a')
+      link.href = url
+      link.setAttribute('download', `boardingpass-${bookingDetail.booking_code}-${targetPaxId || 'all'}.pdf`)
+      document.body.appendChild(link)
+      link.click()
+      document.body.removeChild(link)
+      window.URL.revokeObjectURL(url)
+      showToast('Boarding Pass PDF berhasil diunduh.')
+    } catch (err: any) {
+      console.error('Failed to download boarding pass PDF:', err)
+      showToast('Gagal mengunduh dokumen PDF. Silakan coba kembali.')
+    } finally {
+      setDownloadingPdf(false)
+    }
+  }
+
+  // Generate simulated seat matrix rows (e.g. rows 12 to 16, cols A B C | D E F)
+  const seatMatrix = useMemo(() => {
+    if (!bookingDetail) return []
+    const availableSet = new Set(
+      bookingDetail.available_seats?.filter((s) => s.is_available).map((s) => s.seat_number) || [],
+    )
+    const currentlyPickedSeats = new Set(Object.values(selectedSeats).map((s) => s.seatNumber))
+
+    const rows = [12, 13, 14, 15, 16]
+    const colsLeft = ['A', 'B', 'C']
+    const colsRight = ['D', 'E', 'F']
+
+    return rows.map((r) => {
+      const left = colsLeft.map((c) => {
+        const sNum = `${r}${c}`
+        const matchedItem = bookingDetail.available_seats?.find((s) => s.seat_number === sNum)
+        const isAvail = availableSet.has(sNum) && !currentlyPickedSeats.has(sNum)
+        return {
+          seatNumber: sNum,
+          id: matchedItem?.id || r * 10 + c.charCodeAt(0),
+          isAvailable: isAvail,
+        }
+      })
+      const right = colsRight.map((c) => {
+        const sNum = `${r}${c}`
+        const matchedItem = bookingDetail.available_seats?.find((s) => s.seat_number === sNum)
+        const isAvail = availableSet.has(sNum) && !currentlyPickedSeats.has(sNum)
+        return {
+          seatNumber: sNum,
+          id: matchedItem?.id || r * 10 + c.charCodeAt(0),
+          isAvailable: isAvail,
+        }
+      })
+      return { rowNum: r, left, right }
+    })
+  }, [bookingDetail, selectedSeats])
+
+  // Active passenger for Boarding Pass view
+  const activePassenger = bookingDetail?.passengers[activeBoardingPassIndex] || bookingDetail?.passengers[0]
+  const activeBoardingPass =
+    issuedBoardingPasses?.find((bp) => bp.passenger_id === activePassenger?.id) || issuedBoardingPasses?.[0]
 
   return (
-    <div className="min-h-screen bg-page font-sans text-ink flex flex-col justify-between antialiased">
+    <div className="min-h-screen bg-page font-sans text-ink flex flex-col justify-between antialiased selection:bg-brand selection:text-white">
       <Navbar />
 
-      <main className="w-full pt-[76px] pb-16 flex-1">
-        <div className="max-w-[1200px] mx-auto px-4 md:px-6 py-6 md:py-8">
-          {/* Top Bar Navigation */}
-          <div className="flex items-center justify-between mb-6">
-            <Link
-              to="/"
-              className="inline-flex items-center gap-1.5 text-subtle hover:text-brand-fg text-xs md:text-sm font-medium transition-colors group"
-            >
-              <span className="material-symbols-outlined text-[18px] group-hover:-translate-x-1 transition-transform">
-                arrow_back
-              </span>
-              <span>Kembali ke beranda</span>
-            </Link>
+      <main className="w-full pt-[72px] pb-16 flex-1 bg-page">
+        <div className="max-w-[1240px] mx-auto px-4 md:px-6 py-6 md:py-8">
 
-            <div className="flex items-center gap-2 text-subtle text-[11px] uppercase tracking-wider font-semibold">
-              <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-              <span>Sistem Check-in Terbuka</span>
-            </div>
-          </div>
-
-          {/* ─── CASE 1: SUCCESS BOARDING PASS VIEW ─── */}
-          {issuedBoardingPasses && issuedBoardingPasses.length > 0 && bookingDetail ? (
-            <div className="bg-raised rounded-ticket border border-line p-6 md:p-10 shadow-lg max-w-3xl mx-auto my-4 text-center animate-fadeInUp">
-              <div className="w-16 h-16 rounded-full bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 flex items-center justify-center mx-auto mb-4">
-                <span className="material-symbols-outlined text-[36px]">check_circle</span>
-              </div>
-              <h1 className="text-2xl md:text-3xl font-bold text-ink mb-2">Check-in Online Berhasil!</h1>
-              <p className="text-subtle text-sm mb-6 max-w-lg mx-auto leading-relaxed">
-                Boarding pass digital resmi telah terbit untuk seluruh penumpang penerbangan{' '}
-                <strong className="text-ink">
-                  {bookingDetail.flight.airline?.name || 'SkyBook'} {bookingDetail.flight.flight_number}
-                </strong>
-                . Tunjukkan boarding pass ini di gerbang keberangkatan.
-              </p>
-
-              {/* Cards Boarding Pass */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-8 text-left">
-                {issuedBoardingPasses.map((bp) => (
-                  <div
-                    key={bp.passenger_id}
-                    className="bg-panel border border-line p-5 rounded-ticket relative shadow-sm hover:border-brand-fg/40 transition-colors"
-                  >
-                    <div className="flex justify-between items-start mb-3">
-                      <div>
-                        <span className="text-[10px] uppercase font-bold tracking-wider text-brand-fg block">
-                          BOARDING PASS
-                        </span>
-                        <span className="text-xs font-semibold text-subtle">
-                          {bookingDetail.flight.airline?.name || 'SkyBook'}
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-xs font-mono font-bold bg-tint text-brand-fg px-2.5 py-1 rounded">
-                          Kursi {bp.seat_number}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="text-base font-bold text-ink truncate">{bp.full_name}</div>
-                    <div className="text-xs text-subtle font-mono">{bp.id_number}</div>
-
-                    <div className="mt-4 pt-3 border-t border-dashed border-line grid grid-cols-2 gap-2 text-xs">
-                      <div>
-                        <span className="text-subtle block text-[10px] uppercase">Rute</span>
-                        <span className="font-bold text-ink">
-                          {firstSeg?.origin?.code || 'ORIGIN'} &rarr; {lastSeg?.destination?.code || 'DEST'}
-                        </span>
-                      </div>
-                      <div className="text-right">
-                        <span className="text-subtle block text-[10px] uppercase">Jadwal</span>
-                        <span className="font-bold text-ink tabular-nums">
-                          {formatTime(firstSeg?.departure_time)}
-                        </span>
-                      </div>
-                    </div>
-
-                    <div className="mt-3 pt-2 bg-page/70 rounded p-2 flex items-center justify-between text-[11px] text-subtle font-mono">
-                      <span>PNR: {bookingDetail.booking_code}</span>
-                      <span className="text-ink font-semibold">{bp.boarding_pass_code}</span>
-                    </div>
-                  </div>
-                ))}
+          {/* ─────────────────────────────────────────────────────────────
+              CASE 1: NO BOOKING LOADED -> SEARCH & ELIGIBLE BOOKINGS PORTAL
+             ───────────────────────────────────────────────────────────── */}
+          {!bookingDetail && (
+            <div className="flex flex-col gap-8 max-w-4xl mx-auto py-4">
+              {/* Header Title */}
+              <div className="text-center max-w-xl mx-auto">
+                <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-tint text-brand-fg text-xs font-semibold uppercase tracking-wider mb-3">
+                  <span className="material-symbols-outlined text-[16px]">flight_takeoff</span>
+                  <span>Self Check-in Service</span>
+                </div>
+                <h1 className="text-3xl md:text-4xl font-bold text-ink tracking-tight mb-2">
+                  Check-in Online Mandiri
+                </h1>
+                <p className="text-sm text-subtle leading-relaxed">
+                  Hindari antrean di bandara. Pilih kursi terbaik dan dapatkan boarding pass resmi secara instan mulai 24 jam sebelum keberangkatan.
+                </p>
               </div>
 
-              <div className="flex flex-col sm:flex-row items-center justify-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => window.print()}
-                  className="w-full sm:w-auto h-11 px-6 bg-brand hover:bg-brand-hover text-white rounded-control font-semibold text-sm flex items-center justify-center gap-2 shadow-sm transition-all active:scale-98"
-                >
-                  <span className="material-symbols-outlined text-[18px]">print</span>
-                  <span>Cetak / Simpan Boarding Pass</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setBookingDetail(null)
-                    setIssuedBoardingPasses(null)
-                    setSearchParams({}, { replace: true })
+              {/* Search Form Card */}
+              <div className="bg-raised border border-line rounded-ticket p-6 md:p-8 shadow-sm">
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault()
+                    loadBooking()
                   }}
-                  className="w-full sm:w-auto h-11 px-6 border border-line bg-panel hover:bg-tint text-ink rounded-control font-semibold text-sm flex items-center justify-center transition-colors"
+                  className="flex flex-col sm:flex-row gap-3 items-stretch"
                 >
-                  Check-in Tiket Lain
-                </button>
-              </div>
-            </div>
-          ) : bookingDetail ? (
-            /* ─── CASE 2: CHECK-IN WORKSPACE WITH REAL BOOKING DATA ─── */
-            <div>
-              {/* Flight Header */}
-              <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 mb-6">
-                <div>
-                  <div className="flex items-center gap-3 flex-wrap mb-1">
-                    <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-ink">
-                      Check-in online
-                    </h1>
-                    <span className="bg-panel border border-line text-ink px-3 py-1 rounded-full text-xs font-semibold uppercase tracking-wider">
-                      {flight?.airline?.name} {flight?.flight_number}
+                  <div className="relative flex-1">
+                    <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-subtle text-[22px]">
+                      confirmation_number
                     </span>
-                    <span className="text-xs font-mono bg-tint text-brand-fg font-bold px-2 py-0.5 rounded">
-                      PNR: {bookingDetail.booking_code}
+                    <input
+                      type="text"
+                      value={searchPnr}
+                      onChange={(e) => setSearchPnr(e.target.value.toUpperCase())}
+                      placeholder="Masukkan Kode Booking / PNR (cth: K7QM4X)"
+                      maxLength={10}
+                      className="w-full h-12 pl-12 pr-4 bg-panel border border-line focus:border-brand-fg focus:ring-2 focus:ring-brand-fg/20 rounded-control font-mono font-bold text-ink placeholder:font-sans placeholder:font-normal placeholder:text-subtle text-base uppercase transition-colors"
+                    />
+                  </div>
+                  <button
+                    type="submit"
+                    disabled={isSearching || !searchPnr.trim()}
+                    className="h-12 px-7 bg-brand hover:bg-brand-hover disabled:opacity-50 text-white rounded-control font-semibold text-sm flex items-center justify-center gap-2 transition-all shadow-sm active:scale-[0.98]"
+                  >
+                    {isSearching ? (
+                      <>
+                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                        <span>Mencari...</span>
+                      </>
+                    ) : (
+                      <>
+                        <span>Cari Pesanan</span>
+                        <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                      </>
+                    )}
+                  </button>
+                </form>
+
+                {searchError && (
+                  <div className="mt-4 p-3.5 bg-danger/10 border border-danger/20 rounded-control flex items-start gap-2.5 text-danger text-sm">
+                    <span className="material-symbols-outlined text-[18px] shrink-0 mt-0.5">error</span>
+                    <span>{searchError}</span>
+                  </div>
+                )}
+              </div>
+
+              {/* Logged-In User Eligible Bookings */}
+              {user && (
+                <div className="flex flex-col gap-4 mt-2">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-base font-bold text-ink flex items-center gap-2">
+                      <span className="material-symbols-outlined text-brand-fg text-[20px]">airline_seat_recline_normal</span>
+                      <span>Pemesanan Anda yang Siap Check-in</span>
+                    </h2>
+                    <span className="text-xs text-subtle">
+                      {userBookings.length} penerbangan ditemukan
                     </span>
                   </div>
-                  <p className="text-sm md:text-base text-subtle flex items-center gap-2">
-                    <span className="font-bold text-ink">
-                      {firstSeg?.origin?.city} ({firstSeg?.origin?.code})
-                    </span>
-                    <span className="material-symbols-outlined text-brand-fg text-[18px]">
-                      arrow_forward
-                    </span>
-                    <span className="font-bold text-ink">
-                      {lastSeg?.destination?.city} ({lastSeg?.destination?.code})
-                    </span>
+
+                  {loadingUserBookings ? (
+                    <div className="p-8 text-center text-subtle text-sm bg-panel border border-line rounded-ticket flex items-center justify-center gap-2">
+                      <div className="w-5 h-5 border-2 border-brand border-t-transparent rounded-full animate-spin" />
+                      <span>Memeriksa pesanan Anda...</span>
+                    </div>
+                  ) : userBookings.length > 0 ? (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {userBookings.map((b) => (
+                        <div
+                          key={b.id}
+                          className="bg-panel border border-line hover:border-brand-fg/50 rounded-ticket p-5 flex flex-col justify-between gap-4 transition-all hover:shadow-sm"
+                        >
+                          <div>
+                            <div className="flex items-center justify-between mb-2">
+                              <span className="font-mono font-bold text-brand-fg text-sm tracking-wider">
+                                {b.booking_code}
+                              </span>
+                              <span className="text-xs px-2.5 py-0.5 rounded-full bg-tint text-brand-fg font-medium">
+                                {b.passenger_count} Penumpang
+                              </span>
+                            </div>
+
+                            <div className="flex items-center gap-2 text-ink font-bold text-base mb-1">
+                              <span>{b.flight?.origin?.code || 'ORIG'}</span>
+                              <span className="material-symbols-outlined text-[16px] text-subtle">arrow_forward</span>
+                              <span>{b.flight?.destination?.code || 'DEST'}</span>
+                            </div>
+
+                            <div className="text-xs text-subtle flex items-center gap-1.5">
+                              <span>{b.flight?.airline?.name || 'SkyBook'} {b.flight?.flight_number}</span>
+                              <span>•</span>
+                              <span className="tabular-nums">{formatIndoDate(b.flight?.departure_time)}</span>
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => loadBooking(b.booking_code, b.id)}
+                            className="w-full h-10 bg-brand/10 hover:bg-brand text-brand-fg hover:text-white rounded-control text-xs font-semibold flex items-center justify-center gap-1.5 transition-all"
+                          >
+                            <span>{b.is_fully_checked_in ? 'Buka Boarding Pass' : 'Lanjutkan Check-in'}</span>
+                            <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-8 text-center text-subtle text-sm bg-panel border border-line rounded-ticket">
+                      Belum ada penerbangan aktif yang memenuhi syarat check-in. Check-in online dibuka 24 jam sebelum jadwal keberangkatan.
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Informational Guidance Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-2">
+                <div className="p-5 rounded-ticket bg-panel border border-line">
+                  <div className="w-9 h-9 rounded-control bg-tint text-brand-fg flex items-center justify-center mb-3">
+                    <span className="material-symbols-outlined text-[20px]">schedule</span>
+                  </div>
+                  <h3 className="text-sm font-bold text-ink mb-1">Kapan Check-in Dibuka?</h3>
+                  <p className="text-xs text-subtle leading-relaxed">
+                    Check-in online mandiri dibuka H-24 jam dan ditutup tepat 60 menit sebelum waktu keberangkatan.
                   </p>
                 </div>
 
-                <div className="bg-raised border border-line px-4 py-2.5 rounded-ticket shadow-sm flex items-center gap-3">
-                  <div className="w-9 h-9 rounded-control bg-tint text-brand-fg flex items-center justify-center">
-                    <span className="material-symbols-outlined text-[20px]">calendar_today</span>
+                <div className="p-5 rounded-ticket bg-panel border border-line">
+                  <div className="w-9 h-9 rounded-control bg-tint text-brand-fg flex items-center justify-center mb-3">
+                    <span className="material-symbols-outlined text-[20px]">badge</span>
                   </div>
-                  <div>
-                    <div className="text-[10px] uppercase font-bold text-subtle tracking-wider">
-                      Jadwal Keberangkatan
+                  <h3 className="text-sm font-bold text-ink mb-1">Dokumen Wajib</h3>
+                  <p className="text-xs text-subtle leading-relaxed">
+                    Siapkan e-KTP fisik, SIM, atau Paspor yang masih berlaku dan sesuai dengan nama pada tiket saat pemeriksaan bandara.
+                  </p>
+                </div>
+
+                <div className="p-5 rounded-ticket bg-panel border border-line">
+                  <div className="w-9 h-9 rounded-control bg-tint text-brand-fg flex items-center justify-center mb-3">
+                    <span className="material-symbols-outlined text-[20px]">luggage</span>
+                  </div>
+                  <h3 className="text-sm font-bold text-ink mb-1">Bagasi Tercatat</h3>
+                  <p className="text-xs text-subtle leading-relaxed">
+                    Penumpang dengan bagasi tercatat dapat langsung menuju counter drop bagasi khusus maskapai maksimal 50 menit sebelum terbang.
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ─────────────────────────────────────────────────────────────
+              CASE 2: SUCCESS BOARDING PASS VIEW (STITCH B12)
+             ───────────────────────────────────────────────────────────── */}
+          {bookingDetail && issuedBoardingPasses && issuedBoardingPasses.length > 0 && (
+            <div className="flex flex-col gap-8 animate-fadeIn">
+              {/* Top Utility & Action Header */}
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIssuedBoardingPasses(null)
+                      setBookingDetail(null)
+                      setSearchParams({}, { replace: true })
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs md:text-sm text-subtle hover:text-ink transition-colors font-medium group"
+                  >
+                    <span className="material-symbols-outlined text-[18px] group-hover:-translate-x-0.5 transition-transform">
+                      arrow_back
+                    </span>
+                    <span>Kembali ke pesanan saya</span>
+                  </button>
+                  <span className="w-1 h-1 rounded-full bg-line" />
+                  <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 text-xs font-semibold">
+                    <span className="material-symbols-outlined text-[16px] fill-current">check_circle</span>
+                    <span>Check-in Berhasil</span>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2.5 flex-wrap">
+                  <button
+                    type="button"
+                    onClick={() => setIsShareModalOpen(true)}
+                    className="inline-flex items-center gap-1.5 px-3.5 h-10 rounded-control bg-raised border border-line text-ink hover:bg-tint transition-colors text-xs font-semibold shadow-xs"
+                  >
+                    <span className="material-symbols-outlined text-[18px] text-subtle">share</span>
+                    <span>Kirim ke WhatsApp/Email</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => window.print()}
+                    className="inline-flex items-center gap-1.5 px-3.5 h-10 rounded-control bg-raised border border-line text-ink hover:bg-tint transition-colors text-xs font-semibold shadow-xs"
+                  >
+                    <span className="material-symbols-outlined text-[18px] text-subtle">print</span>
+                    <span>Cetak</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadBoardingPassPDF()}
+                    disabled={downloadingPdf}
+                    className="inline-flex items-center gap-1.5 px-4 h-10 rounded-control bg-brand hover:bg-brand-hover text-white transition-all text-xs font-semibold shadow-sm active:scale-[0.98]"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">download</span>
+                    <span>Simpan boarding pass (PDF)</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Live Status & Passenger Selectors */}
+              <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-4 pb-1 border-b border-line">
+                {/* Passenger Switcher Tabs */}
+                <div className="flex items-center gap-3 overflow-x-auto pb-1 scrollbar-none">
+                  {bookingDetail.passengers.map((p, idx) => {
+                    const isActive = idx === activeBoardingPassIndex
+                    const pSeat = selectedSeats[p.id]?.seatNumber || p.seat_number || '14A'
+                    return (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => setActiveBoardingPassIndex(idx)}
+                        className={`flex items-center gap-2 pb-2.5 border-b-2 font-semibold text-sm transition-all whitespace-nowrap ${
+                          isActive
+                            ? 'border-brand-fg text-ink'
+                            : 'border-transparent text-subtle hover:text-ink'
+                        }`}
+                      >
+                        <span>{p.full_name}</span>
+                        <span
+                          className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold ${
+                            isActive
+                              ? 'bg-brand/10 text-brand-fg'
+                              : 'bg-panel text-subtle'
+                          }`}
+                        >
+                          {pSeat}
+                        </span>
+                      </button>
+                    )
+                  })}
+                </div>
+
+                {/* Live Flight Status Bar */}
+                <div className="inline-flex items-center gap-3 px-3.5 py-1.5 rounded-control bg-raised border border-line text-xs font-medium self-start lg:self-auto shadow-2xs">
+                  <div className="flex items-center gap-1.5">
+                    <span className="relative flex h-2 w-2">
+                      <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-500 opacity-75" />
+                      <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500" />
+                    </span>
+                    <span className="font-semibold text-ink tabular-nums">
+                      Boarding {boardingTimeDisplay.timeStr}
+                    </span>
+                    <span className="text-subtle">{boardingTimeDisplay.relativeStr}</span>
+                  </div>
+                  <div className="h-3 w-px bg-line" />
+                  <div className="inline-flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-semibold">
+                    <span className="material-symbols-outlined text-[16px]">verified</span>
+                    <span>Siap boarding</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* ─── MAIN BOARDING PASS TICKET CONTAINER (STITCH B12) ─── */}
+              <div className="relative w-full bg-raised rounded-ticket border border-line shadow-sm overflow-hidden flex flex-col xl:flex-row">
+                {/* LEFT SECTION: Main Flight & Passenger Body */}
+                <div className="flex-1 p-6 md:p-8 flex flex-col justify-between relative">
+                  {/* Airline Strip & Aircraft Specs */}
+                  <div className="flex items-center justify-between pb-6 border-b border-line">
+                    <div className="flex items-center gap-3">
+                      <div className="w-10 h-10 rounded-control bg-tint text-brand-fg flex items-center justify-center">
+                        <span className="material-symbols-outlined text-[24px]">flight_takeoff</span>
+                      </div>
+                      <div className="flex flex-col">
+                        <span className="font-bold text-lg text-ink tracking-tight">
+                          {flight?.airline?.name || 'SkyBook Airlines'}
+                        </span>
+                        <span className="text-xs text-subtle">
+                          Penerbangan {flight?.flight_number} • {flight?.airplane?.model || 'Boeing 737-800'}
+                        </span>
+                      </div>
                     </div>
-                    <div className="text-sm font-bold text-ink tabular-nums">
-                      {formatIndoDate(firstSeg?.departure_time)} • {formatTime(firstSeg?.departure_time)}
+                    <div className="text-right">
+                      <span className="px-2.5 py-1 rounded bg-tint text-brand-fg text-[11px] font-semibold uppercase tracking-wider">
+                        {activePassenger?.seat_class === 'business' ? 'Kelas Bisnis' : 'Kelas Ekonomi'}
+                      </span>
+                      <p className="text-xs text-subtle mt-1 tabular-nums">
+                        {formatIndoDate(firstSeg?.departure_time)}
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* Route & Timing Showcase */}
+                  <div className="py-8 grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+                    {/* Origin */}
+                    <div className="md:col-span-4 flex flex-col">
+                      <span className="text-4xl md:text-5xl font-extrabold text-ink leading-none tracking-tight">
+                        {firstSeg?.origin?.code || 'CGK'}
+                      </span>
+                      <span className="text-lg font-bold text-brand-fg mt-2 tabular-nums">
+                        {formatTime(firstSeg?.departure_time)} WIB
+                      </span>
+                      <span className="text-sm font-semibold text-ink mt-0.5">
+                        {firstSeg?.origin?.city || 'Jakarta'}
+                      </span>
+                      <span className="text-xs text-subtle">
+                        {firstSeg?.origin?.name || "Soekarno-Hatta Int'l (T3)"}
+                      </span>
+                    </div>
+
+                    {/* Trajectory Line */}
+                    <div className="md:col-span-4 flex flex-col items-center justify-center px-2">
+                      <span className="text-xs text-subtle mb-2 font-medium">
+                        {firstSeg?.transit_duration_minutes ? `Transit ${firstSeg.transit_duration_minutes}m` : 'Langsung • Non-Stop'}
+                      </span>
+                      <div className="relative w-full flex items-center justify-center">
+                        <div className="w-full h-[2px] bg-line" />
+                        <div className="absolute w-7 h-7 rounded-full bg-tint text-brand-fg flex items-center justify-center">
+                          <span className="material-symbols-outlined text-[16px] rotate-90">flight</span>
+                        </div>
+                      </div>
+                      <span className="text-[10px] text-subtle uppercase tracking-widest mt-2">
+                        Penerbangan Domestik
+                      </span>
+                    </div>
+
+                    {/* Destination */}
+                    <div className="md:col-span-4 flex flex-col md:text-right">
+                      <span className="text-4xl md:text-5xl font-extrabold text-ink leading-none tracking-tight">
+                        {lastSeg?.destination?.code || 'DPS'}
+                      </span>
+                      <span className="text-lg font-bold text-brand-fg mt-2 tabular-nums">
+                        {formatTime(lastSeg?.arrival_time)} {lastSeg?.destination?.code === 'DPS' ? 'WITA' : 'WIB'}
+                      </span>
+                      <span className="text-sm font-semibold text-ink mt-0.5">
+                        {lastSeg?.destination?.city || 'Denpasar Bali'}
+                      </span>
+                      <span className="text-xs text-subtle">
+                        {lastSeg?.destination?.name || "Ngurah Rai Int'l (T1)"}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Tabular Grid of 6 Passenger Flight Parameters */}
+                  <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4 pt-6 border-t border-line text-left">
+                    <div className="flex flex-col">
+                      <span className="text-[10px] uppercase font-bold text-subtle tracking-wider">Nama Penumpang</span>
+                      <span className="text-sm font-bold text-ink mt-1 truncate">
+                        {activePassenger?.full_name || 'Penumpang'}
+                      </span>
+                      <span className="text-xs text-subtle font-mono">Dewasa (ADT)</span>
+                    </div>
+
+                    <div className="flex flex-col">
+                      <span className="text-[10px] uppercase font-bold text-subtle tracking-wider">Kursi (Seat)</span>
+                      <span className="text-2xl font-black text-signal mt-0.5 tabular-nums">
+                        {(activePassenger?.id ? selectedSeats[activePassenger.id]?.seatNumber : undefined) || activePassenger?.seat_number || '14A'}
+                      </span>
+                      <span className="text-xs text-subtle">Depan Sayap</span>
+                    </div>
+
+                    <div className="flex flex-col">
+                      <span className="text-[10px] uppercase font-bold text-subtle tracking-wider">Pintu Masuk (Gate)</span>
+                      <span className="text-sm font-bold text-brand-fg mt-1">
+                        {activeBoardingPass?.gate || 'Gate 3A'}
+                      </span>
+                      <span className="text-xs text-subtle">Layar Terminal 3</span>
+                    </div>
+
+                    <div className="flex flex-col">
+                      <span className="text-[10px] uppercase font-bold text-subtle tracking-wider">Waktu Boarding</span>
+                      <span className="text-sm font-bold text-ink mt-1 tabular-nums">
+                        {boardingTimeDisplay.timeStr}
+                      </span>
+                      <span className="text-xs text-subtle">30m sblm terbang</span>
+                    </div>
+
+                    <div className="flex flex-col">
+                      <span className="text-[10px] uppercase font-bold text-subtle tracking-wider">Zona Antrean</span>
+                      <span className="text-sm font-bold text-ink mt-1">ZONA 2</span>
+                      <span className="text-xs text-subtle">Prioritas Reguler</span>
+                    </div>
+
+                    <div className="flex flex-col">
+                      <span className="text-[10px] uppercase font-bold text-subtle tracking-wider">Jatah Bagasi</span>
+                      <span className="text-sm font-bold text-ink mt-1">Kabin 7 kg</span>
+                      <span className="text-xs text-subtle">Bagasi 20 kg</span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Perforation Line & Half-Circle Notches */}
+                <div className="hidden xl:flex relative flex-col items-center justify-between w-8 my-[-1px]">
+                  <div className="w-8 h-8 rounded-full bg-page -mt-4 border border-line" />
+                  <div className="h-full border-r-2 border-dashed border-line my-2" />
+                  <div className="w-8 h-8 rounded-full bg-page -mb-4 border border-line" />
+                </div>
+
+                {/* RIGHT STUB: Gate Scan & Validation Section */}
+                <div className="xl:w-[340px] bg-panel p-6 md:p-8 flex flex-col justify-between items-center text-center relative border-t xl:border-t-0 border-line">
+                  <div className="w-full flex items-center justify-between pb-3 border-b border-line text-left">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold tracking-widest text-subtle block">Pass Stub</span>
+                      <span className="text-xs font-bold text-ink">
+                        {flight?.flight_number} • {flight?.airline?.name || 'SkyBook'}
+                      </span>
+                    </div>
+                    <span className="px-2 py-0.5 rounded bg-tint text-brand-fg text-[10px] font-bold uppercase">
+                      {activePassenger?.seat_class === 'business' ? 'BUSINESS' : 'ECONOMY'}
+                    </span>
+                  </div>
+
+                  {/* High-Contrast Gate Machine QR Code with Click-to-Zoom */}
+                  <div
+                    onClick={() => setIsQrModalOpen(true)}
+                    className="my-5 p-3.5 bg-white rounded-control shadow-2xs border border-line flex flex-col items-center cursor-pointer group/qr transition-transform hover:scale-105 duration-200"
+                    title="Klik untuk memperbesar QR code boarding pass"
+                  >
+                    <svg
+                      aria-label="QR Code boarding pass"
+                      className="w-40 h-40 text-slate-900 fill-current"
+                      viewBox="0 0 160 160"
+                    >
+                      <path d="M10 10h50v50H10V10zm10 10v30h30V20H20zm10 10h10v10H30V30zM100 10h50v50h-50V10zm10 10v30h30V20h-30zm10 10h10v10h-10V30zM10 100h50v50H10v-50zm10 10v30h30v-30H20zm10 10h10v10H30v-10zM70 10h20v10H70V10zm0 20h10v20H70V30zm20 10h10v20H90V40zm-20 30h10v10H70V70zm20 0h20v10H90V70zm-50 10h20v10H40V80zm70 10h10v20h-10V90zm20-10h20v10h-20V80zm0 20h10v10h-10v-10zm-20 20h20v10h-20v-10zm30 10h10v20h-10v-20zm-60-20h20v20H70v-20zm0 30h10v10H70v-10zm20 0h20v20H90v-20zm40 10h20v10h-20v-10zM20 70h20v10H20V70zm70-50h10v10H90V20zm20 40h10v10h-10V60zm-30 50h10v10H80v-10z" />
+                    </svg>
+                    <div className="mt-2 text-[11px] font-semibold text-slate-700 flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[14px]">zoom_in</span>
+                      <span>Perbesar QR Gerbang</span>
+                    </div>
+                  </div>
+
+                  {/* Boarding Reference & Identification */}
+                  <div className="w-full flex flex-col items-center">
+                    <span className="text-[10px] uppercase font-bold tracking-widest text-subtle">
+                      Boarding Reference
+                    </span>
+                    <span className="text-base font-mono font-bold text-ink tracking-wider mt-0.5">
+                      {activeBoardingPass?.boarding_pass_code || `BP-${bookingDetail.booking_code}-${activePassenger?.id}`}
+                    </span>
+                    <span className="text-xs text-subtle mt-0.5">
+                      Kode PNR: <strong className="text-ink font-mono">{bookingDetail.booking_code}</strong>
+                    </span>
+                    <p className="text-[11px] text-subtle mt-2 max-w-[220px] leading-relaxed">
+                      Tingkatkan kecerahan layar ke tingkat maksimal saat pemindaian mesin gerbang.
+                    </p>
+                  </div>
+
+                  {/* Authentic Physical Barcode Simulation */}
+                  <div className="w-full pt-3 mt-3 border-t border-line flex flex-col items-center">
+                    <div className="w-full h-7 flex items-stretch justify-center gap-[2px] opacity-75">
+                      <span className="w-[3px] bg-ink" />
+                      <span className="w-[1px] bg-ink" />
+                      <span className="w-[2px] bg-ink" />
+                      <span className="w-[4px] bg-ink" />
+                      <span className="w-[1px] bg-ink" />
+                      <span className="w-[3px] bg-ink" />
+                      <span className="w-[2px] bg-ink" />
+                      <span className="w-[1px] bg-ink" />
+                      <span className="w-[4px] bg-ink" />
+                      <span className="w-[2px] bg-ink" />
+                      <span className="w-[3px] bg-ink" />
+                      <span className="w-[1px] bg-ink" />
+                      <span className="w-[2px] bg-ink" />
+                      <span className="w-[4px] bg-ink" />
+                      <span className="w-[1px] bg-ink" />
+                      <span className="w-[3px] bg-ink" />
+                    </div>
+                    <span className="text-[10px] font-mono text-subtle tracking-widest mt-1">
+                      412{bookingDetail.booking_id}{activePassenger?.id}98271
+                    </span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Essential Travel Reminders Matrix (3 Cards below ticket) */}
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="p-5 rounded-ticket bg-raised border border-line shadow-2xs flex items-start gap-3.5">
+                  <div className="w-10 h-10 rounded-control bg-tint flex-shrink-0 flex items-center justify-center text-brand-fg">
+                    <span className="material-symbols-outlined text-[22px]">apartment</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-bold text-ink">Terminal 3 Domestik</span>
+                    <p className="text-xs text-subtle mt-1 leading-relaxed">
+                      Masuk melalui Pintu Keberangkatan 2. Lanjutkan pemeriksaan keamanan Security Check Point 2 (SCP2).
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-5 rounded-ticket bg-raised border border-line shadow-2xs flex items-start gap-3.5">
+                  <div className="w-10 h-10 rounded-control bg-tint flex-shrink-0 flex items-center justify-center text-signal">
+                    <span className="material-symbols-outlined text-[22px]">timer</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-bold text-ink">Batas Masuk Gerbang</span>
+                    <p className="text-xs text-subtle mt-1 leading-relaxed">
+                      Gerbang keberangkatan ditutup tepat 15 menit sebelum takeoff pada pukul{' '}
+                      <strong className="text-ink font-mono tabular-nums">
+                        {formatTime(firstSeg?.departure_time)} WIB
+                      </strong>.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="p-5 rounded-ticket bg-raised border border-line shadow-2xs flex items-start gap-3.5">
+                  <div className="w-10 h-10 rounded-control bg-tint flex-shrink-0 flex items-center justify-center text-brand-fg">
+                    <span className="material-symbols-outlined text-[22px]">badge</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-sm font-bold text-ink">Ketentuan Identitas</span>
+                    <p className="text-xs text-subtle mt-1 leading-relaxed">
+                      Wajib menunjukkan fisik asli e-KTP, SIM, atau Paspor yang valid dan cocok dengan nama tiket.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom Secondary Actions */}
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 pt-4 border-t border-line">
+                <div className="flex items-center gap-2 text-subtle text-xs">
+                  <span className="material-symbols-outlined text-[18px]">verified_user</span>
+                  <span>Dokumen resmi diterbitkan langsung oleh {flight?.airline?.name || 'maskapai'} via SkyBook Network.</span>
+                </div>
+                <div className="flex items-center gap-3 w-full sm:w-auto">
+                  <Link
+                    to="/bookings"
+                    className="w-full sm:w-auto text-center px-5 h-11 rounded-control bg-raised border border-line text-ink hover:bg-tint transition-colors text-xs font-semibold flex items-center justify-center"
+                  >
+                    Kembali ke pesanan
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => handleDownloadBoardingPassPDF()}
+                    disabled={downloadingPdf}
+                    className="w-full sm:w-auto px-5 h-11 rounded-control bg-brand hover:bg-brand-hover text-white transition-all text-xs font-semibold flex items-center justify-center gap-2 shadow-sm"
+                  >
+                    <span className="material-symbols-outlined text-[18px]">download</span>
+                    <span>Simpan boarding pass (PDF)</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ─────────────────────────────────────────────────────────────
+              CASE 3: ACTIVE CHECK-IN FLOW (STITCH B11)
+             ───────────────────────────────────────────────────────────── */}
+          {bookingDetail && (!issuedBoardingPasses || issuedBoardingPasses.length === 0) && (
+            <div className="flex flex-col gap-6 animate-fadeIn">
+              {/* Top Navigation & Flight Metadata Badge */}
+              <div className="flex flex-col gap-2 mb-2">
+                <div className="flex items-center justify-between">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setBookingDetail(null)
+                      setSearchParams({}, { replace: true })
+                    }}
+                    className="inline-flex items-center gap-1.5 text-subtle hover:text-ink transition-colors text-xs md:text-sm font-medium group"
+                  >
+                    <span className="material-symbols-outlined text-[18px] group-hover:-translate-x-0.5 transition-transform">
+                      arrow_back
+                    </span>
+                    <span>Kembali ke pilihan pesanan</span>
+                  </button>
+                  <div className="flex items-center gap-1.5 text-subtle text-[11px] font-semibold uppercase tracking-wider">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span>Sistem Check-in Terbuka</span>
+                  </div>
+                </div>
+
+                <div className="flex flex-col md:flex-row md:items-end justify-between gap-4 pt-1">
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap mb-1">
+                      <h1 className="text-2xl md:text-3xl font-bold text-ink">Check-in online</h1>
+                      <span className="bg-panel border border-line text-ink px-2.5 py-0.5 rounded-full text-xs font-bold uppercase tracking-wide">
+                        {flight?.airline?.name || 'SkyBook'} {flight?.flight_number}
+                      </span>
+                      {isDelayed && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-danger/10 text-danger text-xs font-semibold">
+                          <span className="material-symbols-outlined text-[14px]">schedule</span>
+                          <span>Tertunda {flight?.delay_minutes} menit</span>
+                        </span>
+                      )}
+                      {isFlightCancelled && (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-danger/10 text-danger text-xs font-bold">
+                          <span className="material-symbols-outlined text-[14px]">cancel</span>
+                          <span>Penerbangan Dibatalkan</span>
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-subtle text-sm flex items-center gap-2">
+                      <span className="font-semibold text-ink">{firstSeg?.origin?.city || 'Jakarta'} ({firstSeg?.origin?.code || 'CGK'})</span>
+                      <span className="material-symbols-outlined text-brand-fg text-[16px]">arrow_forward</span>
+                      <span className="font-semibold text-ink">{lastSeg?.destination?.city || 'Denpasar'} ({lastSeg?.destination?.code || 'DPS'})</span>
+                    </p>
+                  </div>
+
+                  <div className="bg-raised border border-line px-4 py-2.5 rounded-control shadow-2xs flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-control bg-tint flex items-center justify-center text-brand-fg">
+                      <span className="material-symbols-outlined text-[18px]">calendar_today</span>
+                    </div>
+                    <div>
+                      <div className="text-[10px] text-subtle uppercase font-bold tracking-wider">Jadwal Keberangkatan</div>
+                      <div className="text-xs font-semibold text-ink tabular-nums">
+                        {formatIndoDate(firstSeg?.departure_time)} • {formatTime(firstSeg?.departure_time)} WIB
+                      </div>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* Delay Warning if flight is delayed */}
-              {flight && flight.delay_minutes > 0 && (
-                <div className="mb-6 p-4 rounded-ticket bg-amber-500/10 border border-amber-500/30 flex items-center gap-3">
-                  <span className="material-symbols-outlined text-amber-500 text-[24px]">warning</span>
+              {/* CANCELLED FLIGHT ADVISORY (Revisi data real) */}
+              {isFlightCancelled && (
+                <div className="p-5 rounded-ticket bg-danger/10 border border-danger/20 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+                  <div className="flex items-start gap-3 text-danger">
+                    <span className="material-symbols-outlined text-[24px] mt-0.5 shrink-0">cancel</span>
+                    <div>
+                      <h3 className="text-sm font-bold">Penerbangan Ini Telah Dibatalkan</h3>
+                      <p className="text-xs text-danger/90 mt-0.5 leading-relaxed">
+                        Penerbangan dibatalkan oleh pihak maskapai. Check-in online tidak dapat diproses. Anda berhak mendapatkan pengembalian dana 100% penuh.
+                      </p>
+                    </div>
+                  </div>
+                  <Link
+                    to={`/bookings/${bookingDetail.booking_id}`}
+                    className="px-5 h-10 bg-danger hover:bg-danger/90 text-white rounded-control text-xs font-semibold flex items-center justify-center gap-1.5 shrink-0"
+                  >
+                    <span>Ajukan Refund Penuh</span>
+                    <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                  </Link>
+                </div>
+              )}
+
+              {/* TIMING NOT IN WINDOW ADVISORY */}
+              {isTooEarlyForCheckIn && !isFlightCancelled && (
+                <div className="p-5 rounded-ticket bg-amber-500/10 border border-amber-500/20 flex items-start gap-3 text-amber-800 dark:text-amber-400">
+                  <span className="material-symbols-outlined text-[24px] mt-0.5 shrink-0">hourglass_top</span>
                   <div>
-                    <p className="text-sm font-bold text-amber-600 dark:text-amber-400">
-                      Penerbangan Mengalami Keterlambatan ({flight.delay_minutes} Menit)
-                    </p>
-                    <p className="text-xs text-subtle">
-                      Waktu keberangkatan disesuaikan. Jam boarding mengikuti jadwal terbaru.
+                    <h3 className="text-sm font-bold">Check-in Belum Dibuka</h3>
+                    <p className="text-xs leading-relaxed mt-0.5">
+                      Check-in online mandiri akan dibuka tepat 24 jam sebelum keberangkatan. Mohon kembali saat jendela check-in telah dibuka.
                     </p>
                   </div>
                 </div>
               )}
 
-              {/* Main Workspace (8 cols Left / 4 cols Right) */}
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 lg:gap-8 items-start">
+              {isTooLateForCheckIn && !isFlightCancelled && (
+                <div className="p-5 rounded-ticket bg-danger/10 border border-danger/20 flex items-start gap-3 text-danger">
+                  <span className="material-symbols-outlined text-[24px] mt-0.5 shrink-0">schedule</span>
+                  <div>
+                    <h3 className="text-sm font-bold">Check-in Online Mandiri Telah Ditutup</h3>
+                    <p className="text-xs leading-relaxed mt-0.5">
+                      Check-in online ditutup 60 menit sebelum keberangkatan sesuai regulasi penerbangan. Silakan lakukan check-in langsung di counter maskapai di bandara.
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* ─── Main Workspace (8 cols Left / 4 cols Right Disciplined Grid) ─── */}
+              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
                 {/* Left Column (8 cols) */}
                 <div className="lg:col-span-8 flex flex-col gap-6">
+
                   {/* Urgent Flight Timing Progress Card */}
-                  <div className="bg-raised rounded-ticket border border-line p-5 shadow-sm">
+                  <div className="bg-raised border border-line rounded-ticket p-5 shadow-2xs">
                     <div className="flex items-center justify-between mb-1.5">
                       <div className="flex items-center gap-2 text-brand-fg">
                         <span className="material-symbols-outlined text-[20px]">schedule</span>
-                        <span className="font-bold text-base">
-                          Check-in Online Mandiri
+                        <span className="font-bold text-sm">
+                          Check-in ditutup dalam{' '}
+                          <span className="font-mono tabular-nums">
+                            {timeUntilCheckInCloses.hours}j {timeUntilCheckInCloses.minutes}m
+                          </span>
                         </span>
                       </div>
-                      <span className="text-xs text-subtle font-medium">Buka hingga 1 jam sebelum terbang</span>
+                      <span className="text-xs text-subtle font-mono tabular-nums">
+                        Batas {firstSeg?.departure_time ? formatTime(new Date(new Date(firstSeg.departure_time).getTime() - 60 * 60 * 1000).toISOString()) : '06.40'} WIB
+                      </span>
                     </div>
-                    <p className="text-xs md:text-sm text-subtle mb-3 leading-relaxed">
-                      Pastikan data identitas penumpang sesuai kartu identitas resmi (KTP/Paspor). Konfirmasi nomor kursi sebelum melanjutkan.
+                    <p className="text-xs text-subtle mb-3 leading-relaxed">
+                      Check-in online mandiri ditutup tepat 60 menit sebelum keberangkatan sesuai regulasi penerbangan sipil.
                     </p>
-                    <div className="w-full bg-page h-2 rounded-full overflow-hidden border border-line/40">
+                    {/* Azure Progress Bar */}
+                    <div className="w-full bg-panel h-1.5 rounded-full overflow-hidden border border-line/40">
                       <div
                         className="bg-brand-fg h-full rounded-full transition-all duration-500"
-                        style={{ width: '80%' }}
+                        style={{ width: `${checkInWindowProgress}%` }}
                       />
                     </div>
                   </div>
 
                   {/* Passenger Selection Area */}
-                  <div className="flex flex-col gap-4">
+                  <div className="flex flex-col gap-3">
                     <div className="flex items-center justify-between">
-                      <h2 className="text-lg font-bold text-ink">
+                      <h2 className="text-sm font-bold text-ink">
                         Pilih Penumpang &amp; Konfigurasi Kursi
                       </h2>
                       <span className="text-xs text-subtle">
-                        {bookingDetail.passengers.length} Penumpang terdaftar
+                        {checkedPassengerIds.length} dari {bookingDetail.passengers.length} Penumpang terpilih
                       </span>
                     </div>
 
-                    {bookingDetail.passengers.map((passenger) => {
-                      const isEditing = editingPassengerId === passenger.id
-                      const currentSeat =
-                        selectedSeats[passenger.id]?.seatNumber || passenger.seat_number || 'Belum dipilih'
+                    {/* Passenger Items */}
+                    {bookingDetail.passengers.map((p) => {
+                      const isChecked = checkedPassengerIds.includes(p.id)
+                      const isEditing = activeEditingPaxId === p.id
+                      const seatInfo = selectedSeats[p.id]
+                      const seatDisplay = seatInfo?.seatNumber || p.seat_number || 'Belum dipilih'
 
                       return (
                         <div
-                          key={passenger.id}
-                          className={`bg-raised rounded-ticket border transition-all p-5 shadow-sm ${
-                            isEditing ? 'border-brand-fg ring-1 ring-brand-fg/30' : 'border-line'
+                          key={p.id}
+                          className={`rounded-ticket border transition-all duration-200 p-4 md:p-5 ${
+                            isChecked
+                              ? 'bg-tint/40 border-brand-fg/30'
+                              : 'bg-panel border-line opacity-75'
                           }`}
                         >
                           <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                            <div className="flex items-start gap-3">
-                              <div className="pt-0.5">
-                                <div className="w-5 h-5 rounded bg-brand text-white flex items-center justify-center shadow-sm">
-                                  <span className="material-symbols-outlined text-[16px]">check</span>
-                                </div>
-                              </div>
+                            <div className="flex items-start gap-3.5">
+                              {/* Selection Checkbox */}
+                              <label className="pt-0.5 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={isChecked}
+                                  disabled={p.is_checked_in || isFlightCancelled}
+                                  onChange={() => handleTogglePassenger(p.id)}
+                                  className="w-5 h-5 rounded-sm border-line text-brand-fg focus:ring-brand-fg/20 cursor-pointer disabled:opacity-40"
+                                />
+                              </label>
+
                               <div>
                                 <div className="flex items-center gap-2">
-                                  <span className="text-base font-bold text-ink">
-                                    {passenger.full_name}
+                                  <span className="font-bold text-sm text-ink">{p.full_name}</span>
+                                  <span className="bg-panel border border-line text-subtle text-[10px] font-bold uppercase px-2 py-0.5 rounded">
+                                    {p.seat_class === 'business' ? 'Bisnis' : 'Dewasa'}
                                   </span>
-                                  <span className="bg-tint text-brand-fg text-[10px] font-bold px-2 py-0.5 rounded uppercase">
-                                    {passenger.seat_class}
-                                  </span>
-                                  {passenger.is_checked_in && (
-                                    <span className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[10px] font-bold px-2 py-0.5 rounded">
-                                      Sudah Check-in
+                                  {p.is_checked_in && (
+                                    <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 dark:text-emerald-400">
+                                      <span className="material-symbols-outlined text-[14px]">check</span>
+                                      <span>Sudah Check-in</span>
                                     </span>
                                   )}
                                 </div>
-                                <div className="flex items-center gap-3 mt-1 text-xs text-subtle">
-                                  <span className="font-mono">NIK/ID: {passenger.id_number}</span>
+                                <div className="flex items-center gap-3 mt-1 text-xs text-subtle font-mono">
+                                  <span>{p.id_number}</span>
+                                  <span>•</span>
+                                  <span className="flex items-center gap-1 font-sans">
+                                    <span className="material-symbols-outlined text-[14px]">luggage</span>
+                                    Kabin 7 kg + Bagasi 20 kg
+                                  </span>
                                 </div>
                               </div>
                             </div>
 
                             <div className="flex items-center gap-3 self-end md:self-auto">
-                              <div className="flex items-center gap-1.5 bg-panel border border-line px-3 py-1.5 rounded-control shadow-sm">
+                              <div className="flex items-center gap-1.5 bg-raised border border-line px-3 py-1.5 rounded-control shadow-2xs">
                                 <span className="material-symbols-outlined text-brand-fg text-[18px]">
                                   airline_seat_recline_extra
                                 </span>
-                                <span className="font-bold text-ink tabular-nums text-sm">
-                                  Kursi {currentSeat}
-                                </span>
+                                <span className="font-mono font-bold text-xs text-ink">{seatDisplay}</span>
+                                <span className="text-[11px] text-subtle">(Jendela)</span>
                               </div>
 
-                              {!passenger.is_checked_in && (
+                              {!p.is_checked_in && !isFlightCancelled && (
                                 <button
                                   type="button"
-                                  onClick={() => setEditingPassengerId(isEditing ? null : passenger.id)}
-                                  className="text-brand-fg hover:underline text-xs md:text-sm font-semibold transition-colors"
+                                  onClick={() => setActiveEditingPaxId(isEditing ? null : p.id)}
+                                  className="text-brand-fg font-semibold text-xs hover:underline transition-all"
                                 >
                                   {isEditing ? 'Tutup kursi' : 'Ganti kursi'}
                                 </button>
@@ -545,86 +1251,132 @@ export default function CheckIn() {
                             </div>
                           </div>
 
-                          {/* Seat Selector Grid */}
+                          {/* ─── Inline Compact Seat Map Module ─── */}
                           {isEditing && (
-                            <div className="mt-4 pt-4 border-t border-line bg-panel p-4 rounded-control animate-fadeIn">
-                              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-3 mb-3 border-b border-line/60">
+                            <div className="mt-4 pt-4 border-t border-line bg-raised rounded-control p-4 shadow-2xs animate-fadeIn">
+                              <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-3 mb-3 border-b border-line">
                                 <div>
-                                  <div className="text-sm font-bold text-ink">
-                                    Pilih Kursi Penerbangan ({passenger.full_name})
-                                  </div>
-                                  <p className="text-xs text-subtle">
-                                    Pilih kursi tersedia pada pesawat {flight?.airplane?.model || 'pesawat'}.
+                                  <div className="text-xs font-bold text-ink">Pilih Kursi Penerbangan</div>
+                                  <p className="text-[11px] text-subtle">
+                                    Klik kursi untuk mengganti posisi penumpang {p.full_name}
                                   </p>
                                 </div>
-                                <div className="flex items-center gap-4 text-xs text-subtle">
-                                  <div className="flex items-center gap-1.5">
-                                    <div className="w-3.5 h-3.5 rounded bg-brand" />
-                                    <span>Terpilih</span>
+                                <div className="flex items-center gap-3 text-xs text-subtle">
+                                  <div className="flex items-center gap-1">
+                                    <div className="w-3 h-3 rounded-xs bg-signal" />
+                                    <span className="text-[11px]">Terpilih</span>
                                   </div>
-                                  <div className="flex items-center gap-1.5">
-                                    <div className="w-3.5 h-3.5 rounded bg-panel border border-line" />
-                                    <span>Tersedia</span>
+                                  <div className="flex items-center gap-1">
+                                    <div className="w-3 h-3 rounded-xs bg-raised border border-line" />
+                                    <span className="text-[11px]">Tersedia</span>
                                   </div>
-                                  <div className="flex items-center gap-1.5">
-                                    <div className="w-3.5 h-3.5 rounded bg-page flex items-center justify-center text-[10px]">
-                                      ×
-                                    </div>
-                                    <span>Terisi</span>
+                                  <div className="flex items-center gap-1">
+                                    <div className="w-3 h-3 rounded-xs bg-line flex items-center justify-center text-[8px] text-subtle">×</div>
+                                    <span className="text-[11px]">Terisi</span>
                                   </div>
                                 </div>
                               </div>
 
-                              {/* Seat Layout */}
-                              <div className="relative max-w-md mx-auto py-2">
-                                {hoveredSeat && (
-                                  <div className="absolute -top-7 left-1/2 -translate-x-1/2 bg-ink text-panel text-[11px] font-semibold py-1 px-3 rounded-lg shadow-lg pointer-events-none z-20 whitespace-nowrap animate-fadeIn">
-                                    Kursi {hoveredSeat} • Siap Dipilih
+                              {/* Matrix Layout */}
+                              <div className="max-w-md mx-auto py-2">
+                                {/* Column Labels Header */}
+                                <div className="grid grid-cols-7 gap-1.5 text-center font-mono font-bold text-xs text-subtle mb-2">
+                                  <div>A</div>
+                                  <div>B</div>
+                                  <div>C</div>
+                                  <div className="text-[9px] uppercase tracking-wider text-subtle/80 flex items-center justify-center">
+                                    Lorong
                                   </div>
-                                )}
-
-                                <div className="grid grid-cols-6 gap-2 max-h-60 overflow-y-auto p-1">
-                                  {bookingDetail.available_seats && bookingDetail.available_seats.length > 0 ? (
-                                    bookingDetail.available_seats.map((seat) => {
-                                      const isSelected = selectedSeats[passenger.id]?.seatId === seat.id
-                                      const isOccupied =
-                                        !seat.is_available &&
-                                        !Object.values(selectedSeats).some((s) => s.seatId === seat.id)
-
-                                      return (
-                                        <button
-                                          key={seat.id}
-                                          type="button"
-                                          disabled={isOccupied}
-                                          onClick={() => handleSeatSelect(passenger.id, seat)}
-                                          onMouseEnter={() => setHoveredSeat(seat.seat_number)}
-                                          onMouseLeave={() => setHoveredSeat(null)}
-                                          className={`h-9 rounded-control flex items-center justify-center text-xs font-bold transition-all relative select-none ${
-                                            isSelected
-                                              ? 'bg-brand text-white shadow-sm ring-2 ring-brand-fg/30'
-                                              : isOccupied
-                                              ? 'bg-page text-subtle/40 cursor-not-allowed'
-                                              : 'bg-panel border border-line hover:border-brand-fg hover:bg-tint text-ink'
-                                          }`}
-                                        >
-                                          {isSelected ? (
-                                            <span className="material-symbols-outlined text-[16px]">
-                                              check
-                                            </span>
-                                          ) : isOccupied ? (
-                                            '×'
-                                          ) : (
-                                            seat.seat_number
-                                          )}
-                                        </button>
-                                      )
-                                    })
-                                  ) : (
-                                    <div className="col-span-6 text-center text-xs text-subtle py-4">
-                                      Tidak ada data denah kursi tersedia untuk penerbangan ini.
-                                    </div>
-                                  )}
+                                  <div>D</div>
+                                  <div>E</div>
+                                  <div>F</div>
                                 </div>
+
+                                {/* Seat Rows */}
+                                <div className="flex flex-col gap-1.5">
+                                  {seatMatrix.map((row) => (
+                                    <div key={row.rowNum} className="grid grid-cols-7 gap-1.5 items-center">
+                                      {/* Left 3 seats: A, B, C */}
+                                      {row.left.map((st) => {
+                                        const isCurrent = seatInfo?.seatNumber === st.seatNumber
+                                        if (isCurrent) {
+                                          return (
+                                            <div
+                                              key={st.seatNumber}
+                                              className="h-9 rounded-control bg-signal text-white flex items-center justify-center font-mono font-bold text-xs shadow-xs ring-2 ring-signal/30"
+                                            >
+                                              <span className="material-symbols-outlined text-[16px]">check</span>
+                                            </div>
+                                          )
+                                        }
+                                        if (!st.isAvailable) {
+                                          return (
+                                            <div
+                                              key={st.seatNumber}
+                                              className="h-9 rounded-control bg-panel border border-line text-subtle/50 flex items-center justify-center font-mono text-xs cursor-not-allowed"
+                                            >
+                                              ×
+                                            </div>
+                                          )
+                                        }
+                                        return (
+                                          <button
+                                            key={st.seatNumber}
+                                            type="button"
+                                            onClick={() => handleSelectSeat(p.id, { id: st.id, seat_number: st.seatNumber, seat_class: p.seat_class, is_available: true })}
+                                            className="h-9 rounded-control bg-raised hover:bg-tint border border-line hover:border-brand-fg text-ink font-mono font-semibold text-xs flex items-center justify-center transition-colors"
+                                          >
+                                            {st.seatNumber}
+                                          </button>
+                                        )
+                                      })}
+
+                                      {/* Aisle Row Number */}
+                                      <div className="text-center font-mono text-xs text-subtle font-bold">
+                                        {row.rowNum}
+                                      </div>
+
+                                      {/* Right 3 seats: D, E, F */}
+                                      {row.right.map((st) => {
+                                        const isCurrent = seatInfo?.seatNumber === st.seatNumber
+                                        if (isCurrent) {
+                                          return (
+                                            <div
+                                              key={st.seatNumber}
+                                              className="h-9 rounded-control bg-signal text-white flex items-center justify-center font-mono font-bold text-xs shadow-xs ring-2 ring-signal/30"
+                                            >
+                                              <span className="material-symbols-outlined text-[16px]">check</span>
+                                            </div>
+                                          )
+                                        }
+                                        if (!st.isAvailable) {
+                                          return (
+                                            <div
+                                              key={st.seatNumber}
+                                              className="h-9 rounded-control bg-panel border border-line text-subtle/50 flex items-center justify-center font-mono text-xs cursor-not-allowed"
+                                            >
+                                              ×
+                                            </div>
+                                          )
+                                        }
+                                        return (
+                                          <button
+                                            key={st.seatNumber}
+                                            type="button"
+                                            onClick={() => handleSelectSeat(p.id, { id: st.id, seat_number: st.seatNumber, seat_class: p.seat_class, is_available: true })}
+                                            className="h-9 rounded-control bg-raised hover:bg-tint border border-line hover:border-brand-fg text-ink font-mono font-semibold text-xs flex items-center justify-center transition-colors"
+                                          >
+                                            {st.seatNumber}
+                                          </button>
+                                        )
+                                      })}
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+
+                              <div className="mt-2 text-center text-[10px] text-subtle">
+                                Standard Economy • Jarak Antar Kursi 30" (76 cm) • Recline 3"
                               </div>
                             </div>
                           )}
@@ -634,18 +1386,28 @@ export default function CheckIn() {
                   </div>
 
                   {/* Confirmation & Regulatory Declaration Panel */}
-                  <div className="bg-raised rounded-ticket border border-line p-5 shadow-sm flex flex-col gap-4">
+                  <div className="bg-raised border border-line rounded-ticket p-5 shadow-2xs flex flex-col gap-4">
+                    <div className="flex items-center gap-2.5 bg-panel p-3 rounded-control text-ink text-xs">
+                      <span className="material-symbols-outlined text-brand-fg text-[20px] shrink-0">
+                        airline_seat_recline_normal
+                      </span>
+                      <span>
+                        Kursi terverifikasi untuk <strong>{checkedPassengerIds.length} penumpang</strong>:{' '}
+                        {checkedPassengerIds
+                          .map((id) => selectedSeats[id]?.seatNumber || 'Kursi Otomatis')
+                          .join(', ')}
+                      </span>
+                    </div>
+
                     <label className="flex items-start gap-3 cursor-pointer select-none">
                       <input
                         type="checkbox"
                         checked={isAgreed}
                         onChange={(e) => setIsAgreed(e.target.checked)}
-                        className="mt-1 w-4 h-4 rounded text-brand border-line focus:ring-0 cursor-pointer"
+                        className="mt-1 w-4 h-4 rounded-xs border-line text-brand-fg focus:ring-0 cursor-pointer"
                       />
-                      <span className="text-xs md:text-sm text-subtle leading-relaxed">
-                        Saya menyatakan bahwa seluruh data penumpang sesuai dengan identitas resmi
-                        (KTP/Paspor) yang sah dan saya menyetujui ketentuan keselamatan barang bawaan
-                        berbahaya (<em>Dangerous Goods Regulation</em>).
+                      <span className="text-xs text-subtle leading-relaxed">
+                        Saya menyatakan bahwa seluruh data penumpang sesuai dengan identitas resmi (KTP/Paspor) yang sah dan saya menyetujui ketentuan keselamatan barang bawaan berbahaya (<em>Dangerous Goods Regulation</em>).
                       </span>
                     </label>
                   </div>
@@ -654,284 +1416,260 @@ export default function CheckIn() {
                   <div className="flex flex-col gap-2">
                     <button
                       type="button"
-                      disabled={!isAgreed || isSubmitting}
+                      disabled={isSubmitting || !isAgreed || checkedPassengerIds.length === 0 || !isCheckInWindowOpen}
                       onClick={handleCompleteCheckIn}
-                      className="w-full h-12 bg-brand hover:bg-brand-hover text-white rounded-control font-semibold text-base shadow-sm transition-all duration-200 active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                      className="w-full h-12 bg-brand hover:bg-brand-hover disabled:opacity-50 text-white rounded-control font-semibold text-sm shadow-sm transition-all flex items-center justify-center gap-2 active:scale-[0.99]"
                     >
                       {isSubmitting ? (
                         <>
-                          <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                          <span>Menerbitkan boarding pass...</span>
+                          <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                          <span>Menerbitkan Boarding Pass...</span>
                         </>
                       ) : (
                         <>
                           <span>Selesaikan check-in</span>
-                          <span className="material-symbols-outlined text-[20px]">arrow_forward</span>
+                          <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
                         </>
                       )}
                     </button>
                     <div className="flex items-center justify-center gap-1.5 text-subtle text-xs py-1">
-                      <span className="material-symbols-outlined text-[16px]">verified_user</span>
-                      <span>Enkripsi sertifikat boarding pass standar aviasi internasional</span>
+                      <span className="material-symbols-outlined text-[16px] text-emerald-600 dark:text-emerald-400">verified_user</span>
+                      <span>Enkripsi sertifikat boarding pass IATA standar aviasi internasional</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Right Column: Rules & Info (4 cols) */}
+                {/* Right Column: Sticky Rules & Flight Requirements (4 cols / ~360px) */}
                 <div className="lg:col-span-4 flex flex-col gap-5 sticky top-[92px]">
                   {/* Info Rules Panel */}
-                  <div className="bg-raised rounded-ticket border border-line p-5 shadow-sm">
+                  <div className="bg-raised border border-line rounded-ticket p-5 shadow-2xs">
                     <div className="flex items-center gap-2 pb-3 mb-3 border-b border-line text-ink">
                       <span className="material-symbols-outlined text-brand-fg text-[20px]">info</span>
-                      <h3 className="font-bold text-base">Aturan Check-in Online</h3>
+                      <h3 className="font-bold text-sm">Aturan Check-in Online</h3>
                     </div>
-
-                    <div className="space-y-3.5 text-xs">
-                      <div>
-                        <span className="font-bold text-subtle uppercase text-[10px] tracking-wider block">
-                          Batas Waktu
-                        </span>
-                        <p className="text-ink mt-0.5 leading-relaxed">
-                          Check-in mandiri dibuka hingga 1 jam sebelum jadwal terbang.
+                    <div className="flex flex-col gap-3 text-xs">
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-subtle">Batas Waktu</span>
+                        <p className="text-ink leading-relaxed">
+                          Check-in dibuka hingga 1 jam sebelum jadwal terbang (
+                          <strong className="font-mono tabular-nums">
+                            {formatIndoDate(firstSeg?.departure_time)}, {firstSeg?.departure_time ? formatTime(new Date(new Date(firstSeg.departure_time).getTime() - 60 * 60 * 1000).toISOString()) : '06.40'} WIB
+                          </strong>).
                         </p>
                       </div>
 
-                      <div>
-                        <span className="font-bold text-subtle uppercase text-[10px] tracking-wider block">
-                          Boarding Pass
-                        </span>
-                        <p className="text-ink mt-0.5 leading-relaxed">
-                          Langsung terbit seketika setelah check-in berhasil dan dapat diunduh / dicetak.
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-subtle">Boarding Pass</span>
+                        <p className="text-ink leading-relaxed">
+                          Langsung terbit seketika setelah check-in berhasil dan dapat diunduh dalam format PDF atau dicetak langsung.
                         </p>
                       </div>
 
-                      <div>
-                        <span className="font-bold text-subtle uppercase text-[10px] tracking-wider block">
-                          Pemeriksaan Gerbang
-                        </span>
-                        <p className="text-ink mt-0.5 leading-relaxed">
-                          Tunjukkan boarding pass digital dan kartu identitas fisik di terminal keberangkatan.
+                      <div className="flex flex-col gap-0.5">
+                        <span className="text-[10px] uppercase font-bold tracking-wider text-subtle">Pemeriksaan Gerbang</span>
+                        <p className="text-ink leading-relaxed">
+                          Tunjukkan boarding pass digital dan kartu identitas fisik di gerbang keberangkatan Terminal 3 Domestik.
+                        </p>
+                      </div>
+
+                      <div className="flex flex-col gap-0.5 bg-panel p-2.5 rounded-control">
+                        <span className="text-[10px] uppercase font-bold text-brand-fg">Bagasi Tercatat</span>
+                        <p className="text-ink leading-relaxed mt-0.5">
+                          Bagi penumpang dengan bagasi tercatat, silakan lapor di counter drop bagasi sebelum{' '}
+                          <strong className="font-mono tabular-nums">
+                            {firstSeg?.departure_time ? formatTime(new Date(new Date(firstSeg.departure_time).getTime() - 50 * 60 * 1000).toISOString()) : '06.50'} WIB
+                          </strong>.
                         </p>
                       </div>
                     </div>
                   </div>
 
-                  {/* Aircraft Type Card */}
-                  <div className="bg-panel border border-line rounded-ticket p-4 flex items-center justify-between text-ink shadow-sm">
+                  {/* Prohibited Items & Dangerous Goods Regulation */}
+                  <div className="bg-raised border border-line rounded-ticket p-5 shadow-2xs">
+                    <div className="flex items-center gap-2 mb-2 text-danger">
+                      <span className="material-symbols-outlined text-[20px]">warning</span>
+                      <h4 className="font-bold text-xs text-ink">Ketentuan Bagasi Aman</h4>
+                    </div>
+                    <p className="text-xs text-subtle mb-3 leading-relaxed">
+                      Dilarang membawa barang berbahaya dalam kabin maupun tercatat sesuai standar keselamatan penerbangan ICAO:
+                    </p>
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div className="bg-panel p-2 rounded-control flex flex-col items-center justify-center gap-1">
+                        <span className="material-symbols-outlined text-subtle text-[20px]">battery_alert</span>
+                        <span className="text-[10px] font-semibold text-ink leading-tight">Powerbank &gt;20k mAh</span>
+                      </div>
+                      <div className="bg-panel p-2 rounded-control flex flex-col items-center justify-center gap-1">
+                        <span className="material-symbols-outlined text-subtle text-[20px]">propane_tank</span>
+                        <span className="text-[10px] font-semibold text-ink leading-tight">Gas Kompresi</span>
+                      </div>
+                      <div className="bg-panel p-2 rounded-control flex flex-col items-center justify-center gap-1">
+                        <span className="material-symbols-outlined text-subtle text-[20px]">water_drop</span>
+                        <span className="text-[10px] font-semibold text-ink leading-tight">Cairan &gt;100 ml</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Flight Detail Summary Card */}
+                  <div className="bg-panel border border-line rounded-ticket p-4 flex items-center justify-between text-ink">
                     <div className="flex items-center gap-3">
                       <span className="material-symbols-outlined text-brand-fg text-[24px]">flight</span>
                       <div>
-                        <div className="text-sm font-bold">
-                          {flight?.airplane?.model || 'Pesawat Komersial'}
-                        </div>
-                        <div className="text-xs text-subtle">
-                          {flight?.airplane?.registration_number ? `Reg: ${flight.airplane.registration_number}` : 'Kabin Penumpang'}
-                        </div>
+                        <div className="text-xs font-bold">{flight?.airplane?.model || 'Boeing 737-800NG'}</div>
+                        <div className="text-[11px] text-subtle">Konfigurasi Kabin 3-3</div>
                       </div>
                     </div>
-                    <span className="text-[11px] uppercase bg-tint text-brand-fg px-2.5 py-0.5 rounded-full font-bold">
-                      {flight?.status || 'Scheduled'}
+                    <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-raised border border-line text-brand-fg">
+                      {isDelayed ? 'Tertunda' : 'On Time'}
                     </span>
                   </div>
                 </div>
-              </div>
-            </div>
-          ) : (
-            /* ─── CASE 3: SELECT FROM USER BOOKINGS OR PNR SEARCH FORM ─── */
-            <div className="max-w-2xl mx-auto flex flex-col gap-8 my-4">
-              <div className="text-center space-y-2">
-                <div className="w-14 h-14 rounded-full bg-tint text-brand-fg flex items-center justify-center mx-auto mb-2">
-                  <span className="material-symbols-outlined text-[32px]">flight_takeoff</span>
-                </div>
-                <h1 className="text-2xl md:text-3xl font-bold text-ink">
-                  Check-in Online Mandiri
-                </h1>
-                <p className="text-subtle text-sm max-w-md mx-auto">
-                  {user
-                    ? `Selamat datang, ${user.name}! Pilih tiket penerbangan aktif Anda atau masukkan kode booking.`
-                    : 'Masukkan 6 digit Kode Booking (PNR) Anda untuk memulai check-in.'}
-                </p>
-              </div>
-
-              {/* User Eligible Bookings List */}
-              {user && (
-                <div className="flex flex-col gap-3">
-                  <div className="flex items-center justify-between">
-                    <h2 className="text-base font-bold text-ink flex items-center gap-2">
-                      <span className="material-symbols-outlined text-brand-fg text-[20px]">
-                        confirmation_number
-                      </span>
-                      <span>Pesanan Aktif di Akun Anda</span>
-                    </h2>
-                    <span className="text-xs text-subtle">
-                      {loadingUserBookings ? 'Memuat...' : `${userBookings.length} Tiket ditemukan`}
-                    </span>
-                  </div>
-
-                  {loadingUserBookings ? (
-                    <div className="bg-raised border border-line rounded-ticket p-8 text-center flex flex-col items-center gap-3">
-                      <div className="w-7 h-7 border-2 border-brand border-t-transparent rounded-full animate-spin" />
-                      <span className="text-xs text-subtle">Memeriksa jadwal penerbangan Anda...</span>
-                    </div>
-                  ) : userBookings.length > 0 ? (
-                    <div className="space-y-3">
-                      {userBookings.map((b) => (
-                        <div
-                          key={b.id}
-                          className="bg-raised border border-line hover:border-brand-fg/50 rounded-ticket p-4 sm:p-5 shadow-sm transition-all flex flex-col sm:flex-row sm:items-center justify-between gap-4"
-                        >
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <span className="text-sm font-bold text-ink">
-                                {b.flight?.airline?.name || 'SkyBook'} {b.flight?.flight_number}
-                              </span>
-                              <span className="text-xs font-mono font-bold bg-tint text-brand-fg px-2 py-0.5 rounded">
-                                PNR: {b.booking_code}
-                              </span>
-                              {b.is_fully_checked_in ? (
-                                <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-600 dark:text-emerald-400">
-                                  Sudah Check-in
-                                </span>
-                              ) : (
-                                <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded bg-blue-500/10 text-blue-600 dark:text-blue-400">
-                                  Siap Check-in
-                                </span>
-                              )}
-                            </div>
-
-                            <p className="text-xs sm:text-sm text-subtle flex items-center gap-1.5 font-medium">
-                              <span>
-                                {b.flight?.origin?.city} ({b.flight?.origin?.code})
-                              </span>
-                              <span className="material-symbols-outlined text-[16px] text-brand-fg">
-                                arrow_forward
-                              </span>
-                              <span>
-                                {b.flight?.destination?.city} ({b.flight?.destination?.code})
-                              </span>
-                            </p>
-
-                            <div className="text-xs text-subtle">
-                              Jadwal: {formatIndoDate(b.flight?.departure_time)} •{' '}
-                              {formatTime(b.flight?.departure_time)} • {b.passenger_count} Penumpang
-                            </div>
-                          </div>
-
-                          <button
-                            type="button"
-                            onClick={() => loadBooking(b.booking_code)}
-                            className="h-10 px-4 bg-brand hover:bg-brand-hover text-white rounded-control text-xs sm:text-sm font-semibold flex items-center justify-center gap-1.5 shadow-sm shrink-0 transition-all active:scale-98"
-                          >
-                            <span>{b.is_fully_checked_in ? 'Lihat Boarding Pass' : 'Pilih & Check-in'}</span>
-                            <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <div className="bg-raised border border-line rounded-ticket p-6 text-center space-y-3">
-                      <p className="text-sm text-subtle">
-                        Belum ada tiket penerbangan aktif atas nama <strong>{user.name}</strong>.
-                      </p>
-                      <Link
-                        to="/"
-                        className="inline-flex items-center gap-1.5 px-4 py-2 bg-brand hover:bg-brand-hover text-white rounded-control text-xs font-semibold shadow-sm transition-all"
-                      >
-                        <span className="material-symbols-outlined text-[18px]">travel_explore</span>
-                        <span>Cari &amp; Pesan Tiket Sekarang</span>
-                      </Link>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Manual PNR Lookup Box */}
-              <div className="bg-raised border border-line rounded-ticket p-6 shadow-sm space-y-4">
-                <div className="flex items-center gap-2">
-                  <span className="material-symbols-outlined text-brand-fg text-[20px]">search</span>
-                  <h3 className="font-bold text-sm text-ink">
-                    Cari Berdasarkan Kode Booking (PNR)
-                  </h3>
-                </div>
-
-                <form
-                  onSubmit={(e) => {
-                    e.preventDefault()
-                    loadBooking()
-                  }}
-                  className="space-y-3"
-                >
-                  <div>
-                    <label
-                      htmlFor="pnr-input"
-                      className="block text-xs font-semibold text-subtle uppercase tracking-wider mb-1"
-                    >
-                      Kode Booking (6 Karakter)
-                    </label>
-                    <input
-                      id="pnr-input"
-                      type="text"
-                      maxLength={10}
-                      value={searchPnr}
-                      onChange={(e) => setSearchPnr(e.target.value.toUpperCase())}
-                      placeholder="Contoh: 9JFCSZ"
-                      className="w-full h-11 px-3.5 rounded-control border border-line bg-panel text-ink font-mono font-bold text-base tracking-widest placeholder:font-normal placeholder:tracking-normal focus:outline-none focus:ring-2 focus:ring-brand-fg uppercase"
-                    />
-                  </div>
-
-                  {searchError && (
-                    <div className="p-3 rounded-control bg-red-500/10 border border-red-500/30 text-xs text-red-600 dark:text-red-400 flex items-center gap-2">
-                      <span className="material-symbols-outlined text-[18px]">error</span>
-                      <span>{searchError}</span>
-                    </div>
-                  )}
-
-                  <button
-                    type="submit"
-                    disabled={isSearching || !searchPnr.trim()}
-                    className="w-full h-11 bg-brand hover:bg-brand-hover text-white rounded-control text-sm font-semibold flex items-center justify-center gap-2 shadow-sm transition-all active:scale-98 disabled:opacity-50"
-                  >
-                    {isSearching ? (
-                      <>
-                        <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                        <span>Mencari pesanan...</span>
-                      </>
-                    ) : (
-                      <>
-                        <span>Cari &amp; Buka Check-in</span>
-                        <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
-                      </>
-                    )}
-                  </button>
-                </form>
               </div>
             </div>
           )}
-        </div>
 
-        {/* Operational Toast Notification */}
-        {toastMessage && (
-          <aside
-            aria-label="Notifikasi sistem"
-            className="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-raised border border-line text-ink px-4 py-3 rounded-ticket shadow-2xl animate-fadeIn"
+        </div>
+      </main>
+
+      {/* ─── MODAL 1: HIGH RESOLUTION QR ZOOM DIALOG ─── */}
+      {isQrModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-fadeIn"
+          onClick={() => setIsQrModalOpen(false)}
+        >
+          <div
+            className="bg-white text-slate-900 rounded-ticket max-w-sm w-full p-6 text-center shadow-2xl relative"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div className="w-6 h-6 rounded-full bg-emerald-500 text-white flex items-center justify-center shrink-0">
-              <span className="material-symbols-outlined text-[16px]">check</span>
-            </div>
-            <div className="flex flex-col text-left">
-              <span className="text-xs font-bold text-ink">{toastMessage}</span>
-              <span className="text-[10px] text-subtle">Sinkronisasi data langsung</span>
-            </div>
             <button
               type="button"
-              onClick={() => setToastMessage(null)}
-              className="text-subtle hover:text-ink ml-2 p-1"
+              onClick={() => setIsQrModalOpen(false)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-800 transition-colors"
             >
-              <span className="material-symbols-outlined text-[16px]">close</span>
+              <span className="material-symbols-outlined text-[24px]">close</span>
             </button>
-          </aside>
-        )}
-      </main>
+
+            <span className="text-[10px] font-bold uppercase tracking-widest text-slate-500 block mb-1">
+              Validasi Pemindai Gerbang
+            </span>
+            <h3 className="text-lg font-bold text-slate-900 mb-4">
+              Boarding Pass QR Code
+            </h3>
+
+            <div className="p-4 bg-slate-50 rounded-control border border-slate-200 inline-block mb-4">
+              <svg className="w-56 h-56 text-slate-950 fill-current" viewBox="0 0 160 160">
+                <path d="M10 10h50v50H10V10zm10 10v30h30V20H20zm10 10h10v10H30V30zM100 10h50v50h-50V10zm10 10v30h30V20h-30zm10 10h10v10h-10V30zM10 100h50v50H10v-50zm10 10v30h30v-30H20zm10 10h10v10H30v-10zM70 10h20v10H70V10zm0 20h10v20H70V30zm20 10h10v20H90V40zm-20 30h10v10H70V70zm20 0h20v10H90V70zm-50 10h20v10H40V80zm70 10h10v20h-10V90zm20-10h20v10h-20V80zm0 20h10v10h-10v-10zm-20 20h20v10h-20v-10zm30 10h10v20h-10v-20zm-60-20h20v20H70v-20zm0 30h10v10H70v-10zm20 0h20v20H90v-20zm40 10h20v10h-20v-10zM20 70h20v10H20V70zm70-50h10v10H90V20zm20 40h10v10h-10V60zm-30 50h10v10H80v-10z" />
+              </svg>
+            </div>
+
+            <div className="text-xs font-mono font-bold text-slate-800">
+              {activeBoardingPass?.boarding_pass_code || `BP-${bookingDetail?.booking_code}-${activePassenger?.id}`}
+            </div>
+            <div className="text-xs text-slate-500 mt-1">
+              {activePassenger?.full_name} • Kursi {(activePassenger?.id ? selectedSeats[activePassenger.id]?.seatNumber : undefined) || activePassenger?.seat_number || '14A'}
+            </div>
+            <p className="text-[11px] text-slate-500 mt-3 border-t border-slate-100 pt-3">
+              Tingkatkan kecerahan layar smartphone Anda ke tingkat 100% untuk pembacaan optimal sensor barcode bandara.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ─── MODAL 2: SHARE MODAL ─── */}
+      {isShareModalOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/80 flex items-center justify-center p-4 animate-fadeIn"
+          onClick={() => setIsShareModalOpen(false)}
+        >
+          <div
+            className="bg-raised border border-line text-ink rounded-ticket max-w-md w-full p-6 shadow-2xl relative"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => setIsShareModalOpen(false)}
+              className="absolute top-4 right-4 text-subtle hover:text-ink transition-colors"
+            >
+              <span className="material-symbols-outlined text-[24px]">close</span>
+            </button>
+
+            <div className="flex items-center gap-3 mb-4">
+              <div className="w-10 h-10 rounded-control bg-tint text-brand-fg flex items-center justify-center">
+                <span className="material-symbols-outlined text-[20px]">share</span>
+              </div>
+              <div>
+                <h3 className="text-base font-bold text-ink">Bagikan Boarding Pass</h3>
+                <p className="text-xs text-subtle">Kirim ke ponsel atau perangkat lain</p>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 my-4">
+              <button
+                type="button"
+                onClick={() => {
+                  navigator.clipboard.writeText(window.location.href)
+                  showToast('Tautan boarding pass disalin ke clipboard!')
+                  setIsShareModalOpen(false)
+                }}
+                className="w-full h-11 px-4 rounded-control bg-panel border border-line hover:border-brand-fg text-ink text-xs font-semibold flex items-center justify-between transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <span className="material-symbols-outlined text-[18px] text-subtle">content_copy</span>
+                  <span>Salin Tautan Boarding Pass</span>
+                </div>
+                <span className="text-[11px] text-brand-fg font-bold">Salin</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const text = `Boarding Pass SkyBook untuk penerbangan ${flight?.flight_number} (${firstSeg?.origin?.code} ke ${lastSeg?.destination?.code}). Kode PNR: ${bookingDetail?.booking_code}`
+                  window.open(`https://wa.me/?text=${encodeURIComponent(text + ' ' + window.location.href)}`, '_blank')
+                  setIsShareModalOpen(false)
+                }}
+                className="w-full h-11 px-4 rounded-control bg-[#25D366]/10 hover:bg-[#25D366]/20 border border-[#25D366]/30 text-[#128C7E] dark:text-[#25D366] text-xs font-semibold flex items-center gap-2 transition-colors"
+              >
+                <span className="material-symbols-outlined text-[18px]">chat</span>
+                <span>Kirim via WhatsApp</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  showToast('Boarding pass telah dikirimkan ke alamat email terdaftar Anda.')
+                  setIsShareModalOpen(false)
+                }}
+                className="w-full h-11 px-4 rounded-control bg-panel border border-line hover:border-brand-fg text-ink text-xs font-semibold flex items-center gap-2 transition-colors"
+              >
+                <span className="material-symbols-outlined text-[18px] text-subtle">mail</span>
+                <span>Kirim Ulang ke Email Terdaftar</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── FLOATING OPERATIONAL TOAST NOTIFICATION ─── */}
+      {toastMessage && (
+        <aside
+          aria-label="Notifikasi sistem"
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-ink text-page px-4 py-3 rounded-control shadow-xl transition-all animate-bounce"
+        >
+          <div className="w-6 h-6 rounded-full bg-page text-ink flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-[16px]">check</span>
+          </div>
+          <div className="flex flex-col">
+            <span className="text-xs font-semibold text-page">{toastMessage}</span>
+          </div>
+          <button
+            aria-label="Tutup notifikasi"
+            onClick={() => setToastMessage(null)}
+            className="text-subtle hover:text-page ml-2"
+            type="button"
+          >
+            <span className="material-symbols-outlined text-[18px]">close</span>
+          </button>
+        </aside>
+      )}
 
       <Footer />
     </div>

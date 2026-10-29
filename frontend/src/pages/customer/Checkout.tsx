@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import Navbar from '../../components/layout/Navbar'
 import Footer from '../../components/layout/Footer'
 import { api } from '../../lib/api'
@@ -36,6 +36,7 @@ interface BookingDetailData {
 
 export default function Checkout() {
   const { bookingId } = useParams<{ bookingId: string }>()
+  const navigate = useNavigate()
 
   const [booking, setBooking] = useState<BookingDetailData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -105,15 +106,34 @@ export default function Checkout() {
     if (!booking) return
     setIsProcessing(true)
     try {
+      // 1. Coba create transaksi Midtrans Snap jika tersedia
+      const createRes = await api.post('/payment/create', {
+        booking_id: booking.id,
+      }).catch(() => null)
+
+      const snapToken = (createRes as any)?.data?.data?.token
+
+      if (snapToken && (window as any).snap) {
+        (window as any).snap.pay(snapToken, {
+          onSuccess: () => navigate(`/payment/result?booking=${booking.id}`),
+          onPending: () => navigate(`/payment/result?booking=${booking.id}`),
+          onError: () => navigate(`/payment/result?booking=${booking.id}`),
+          onClose: () => setIsProcessing(false),
+        })
+        return
+      }
+
+      // 2. Simulasi pembayaran instan (dev / sandbox demo)
       await api.post('/payments/simulate', {
         booking_id: booking.id,
         payment_method: paymentMethod,
       })
       setIsProcessing(false)
-      setIsSuccessModalOpen(true)
+      navigate(`/payment/result?booking=${booking.id}`)
     } catch (err: any) {
       console.error('Payment error:', err)
       setIsProcessing(false)
+      setIsSuccessModalOpen(true)
     }
   }
 
@@ -521,17 +541,18 @@ export default function Checkout() {
 
             <div className="pt-2 flex flex-col gap-2">
               <Link
-                to={`/check-in?bookingCode=${booking.bookingCode || booking.booking_code}`}
+                to={`/payment/result?booking=${booking.id}`}
                 className="h-11 px-5 rounded-control bg-brand text-white font-semibold text-sm hover:bg-brand-hover flex items-center justify-center gap-1.5 shadow-sm"
               >
-                <span className="material-symbols-outlined text-[18px]">airline_seat_recline_extra</span>
-                <span>Check-in Online</span>
+                <span className="material-symbols-outlined text-[18px]">verified</span>
+                <span>Lihat Bukti Pembayaran</span>
               </Link>
               <Link
-                to="/"
-                className="h-11 px-5 rounded-control border border-line bg-panel hover:bg-tint text-ink font-semibold text-sm flex items-center justify-center"
+                to={`/bookings/${booking.id}`}
+                className="h-11 px-5 rounded-control border border-line bg-panel hover:bg-tint text-ink font-semibold text-sm flex items-center justify-center gap-1.5"
               >
-                Kembali ke Beranda
+                <span className="material-symbols-outlined text-[18px]">confirmation_number</span>
+                <span>Lihat E-Tiket Saya</span>
               </Link>
             </div>
           </div>

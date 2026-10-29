@@ -14,6 +14,8 @@ import {
   checkIns,
 } from '../../db/schema.js'
 import { optionalAuthMiddleware, authMiddleware } from '../../middleware/auth.middleware.js'
+import { checkinService } from '../../services/checkin.service.js'
+import { pdfService } from '../../services/pdf.service.js'
 import type { UserContext } from '../../types/index.js'
 
 const checkinRoute = new Hono<{
@@ -452,6 +454,220 @@ checkinRoute.post('/', optionalAuthMiddleware, async (c) => {
       boarding_passes: issuedBoardingPasses,
     },
   })
+})
+
+const checkInPassengerSchema = z.object({
+  passenger_id: z.coerce.number().int().positive('ID penumpang wajib diisi'),
+  seat_id: z.coerce.number().int().positive().optional(),
+})
+
+/**
+ * POST /api/check-in/:bookingId (atau /api/checkin/:bookingId)
+ * Check-in per penumpang, konfirmasi atau ganti kursi (ETK-04, ETK-05, ETK-06)
+ */
+checkinRoute.post('/:bookingId', optionalAuthMiddleware, async (c) => {
+  const bookingId = Number(c.req.param('bookingId'))
+  if (isNaN(bookingId)) {
+    return c.json({ error: true, message: 'ID booking tidak valid', code: 'INVALID_ID' }, 400)
+  }
+
+  const body = await c.req.json().catch(() => ({}))
+  const parsed = checkInPassengerSchema.safeParse(body)
+  if (!parsed.success) {
+    return c.json(
+      {
+        error: true,
+        message: parsed.error.errors[0]?.message || 'Data tidak valid',
+        code: 'VALIDATION_ERROR',
+        details: parsed.error.errors,
+      },
+      400,
+    )
+  }
+
+  const { passenger_id, seat_id } = parsed.data
+
+  try {
+    const result = await checkinService.processCheckIn({
+      bookingId,
+      passengerId: passenger_id,
+      seatId: seat_id,
+    })
+
+    return c.json({
+      error: false,
+      message: 'Check-in berhasil diselesaikan!',
+      data: result,
+    })
+  } catch (err: any) {
+    if (err && err.status && err.code) {
+      return c.json(
+        {
+          error: true,
+          message: err.message,
+          code: err.code,
+        },
+        err.status,
+      )
+    }
+
+    console.error('[CheckinRoute] Gagal memproses check-in:', err)
+    return c.json(
+      {
+        error: true,
+        message: 'Gagal memproses check-in penumpang',
+        code: 'CHECKIN_FAILED',
+      },
+      500,
+    )
+  }
+})
+
+/**
+ * GET /api/check-in/:bookingId/boarding-pass (atau /api/checkin/:bookingId/boarding-pass)
+ * Mengunduh dokumen Boarding Pass resmi dalam format PDF dengan QR Code
+ */
+checkinRoute.get('/:bookingId/boarding-pass', optionalAuthMiddleware, async (c) => {
+  const bookingId = Number(c.req.param('bookingId'))
+  if (isNaN(bookingId)) {
+    return c.json({ error: true, message: 'ID booking tidak valid', code: 'INVALID_ID' }, 400)
+  }
+
+  const passengerIdQuery = c.req.query('passenger_id')
+  const specificPassengerId = passengerIdQuery ? Number(passengerIdQuery) : undefined
+
+  // Ambil data booking
+  const [booking] = await db
+    .select()
+    .from(bookings)
+    .where(eq(bookings.id, bookingId))
+    .limit(1)
+
+  if (!booking) {
+    return c.json({ error: true, message: 'Pesanan tidak ditemukan', code: 'BOOKING_NOT_FOUND' }, 404)
+  }
+
+  // Ambil data penumpang pada booking ini
+  const passengers = await db
+    .select()
+    .from(bookingPassengers)
+    .where(eq(bookingPassengers.bookingId, booking.id))
+
+  if (passengers.length === 0) {
+    return c.json({ error: true, message: 'Tidak ada data penumpang', code: 'PASSENGER_NOT_FOUND' }, 404)
+  }
+
+  // Cari penumpang yang diminta atau penumpang pertama
+  const targetPassenger = specificPassengerId
+    ? passengers.find((p) => p.id === specificPassengerId)
+    : passengers[0]
+
+  if (!targetPassenger) {
+    return c.json({ error: true, message: 'Penumpang tidak ditemukan pada pesanan ini', code: 'PASSENGER_NOT_FOUND' }, 404)
+  }
+
+  // Ambil data checkin penumpang
+  const [checkInRecord] = await db
+    .select()
+    .from(checkIns)
+    .where(eq(checkIns.bookingPassengerId, targetPassenger.id))
+    .limit(1)
+
+  if (!checkInRecord) {
+    return c.json(
+      {
+        error: true,
+        message: 'Penumpang belum melakukan check-in',
+        code: 'NOT_CHECKED_IN',
+      },
+      400,
+    )
+  }
+
+  // Ambil detail jadwal penerbangan, airline, airplane, airports, segments
+  const [schedule] = await db
+    .select()
+    .from(flightSchedules)
+    .where(eq(flightSchedules.id, booking.flightScheduleId!))
+    .limit(1)
+
+  const [allAirports, [airline]] = await Promise.all([
+    db.select().from(airports),
+    schedule?.airlineId
+      ? db.select().from(airlines).where(eq(airlines.id, schedule.airlineId)).limit(1)
+      : [null],
+  ])
+  const airportMap = new Map(allAirports.map((a) => [a.id, a]))
+
+  const segments = await db
+    .select()
+    .from(flightSegments)
+    .where(eq(flightSegments.flightScheduleId, booking.flightScheduleId!))
+    .orderBy(sql`${flightSegments.segmentOrder} ASC`)
+
+  const firstSeg = segments[0]
+  const lastSeg = segments[segments.length - 1]
+
+  const origAirport = firstSeg ? airportMap.get(firstSeg.originAirportId!) : null
+  const destAirport = lastSeg ? airportMap.get(lastSeg.destinationAirportId!) : null
+
+  // Ambil nomor kursi
+  let seatNumber = 'N/A'
+  if (targetPassenger.seatId) {
+    const [seat] = await db
+      .select({ seatNumber: seats.seatNumber })
+      .from(seats)
+      .where(eq(seats.id, targetPassenger.seatId))
+      .limit(1)
+    if (seat) seatNumber = seat.seatNumber
+  }
+
+  const boardingTime = firstSeg
+    ? checkinService.calculateBoardingTime(firstSeg.departureTime, schedule?.delayMinutes || 0)
+    : '07:00 WIB'
+
+  try {
+    const pdfBytes = await pdfService.generateBoardingPass({
+      bookingCode: booking.bookingCode,
+      passengerName: targetPassenger.fullName,
+      idNumber: targetPassenger.idNumber,
+      seatClass: targetPassenger.seatClass,
+      seatNumber,
+      airlineName: airline?.name || 'SkyBook Airlines',
+      airlineCode: airline?.code || null,
+      flightNumber: schedule?.flightNumber || 'SB-100',
+      flightStatus: schedule?.status || 'scheduled',
+      delayMinutes: schedule?.delayMinutes || 0,
+      originCode: origAirport?.code || 'ORIG',
+      originCity: origAirport?.city || 'Origin City',
+      originName: origAirport?.name || 'Origin Airport',
+      destCode: destAirport?.code || 'DEST',
+      destCity: destAirport?.city || 'Dest City',
+      destName: destAirport?.name || 'Dest Airport',
+      departureTime: firstSeg ? firstSeg.departureTime.toISOString() : new Date().toISOString(),
+      boardingTime,
+      gate: '3A',
+      sequenceNumber: 1,
+      boardingPassCode: checkInRecord.boardingPassCode!,
+    })
+
+    c.header('Content-Type', 'application/pdf')
+    c.header(
+      'Content-Disposition',
+      `attachment; filename="boardingpass-${booking.bookingCode}-${targetPassenger.id}.pdf"`,
+    )
+    return c.body(Buffer.from(pdfBytes))
+  } catch (err: any) {
+    console.error('[CheckinRoute] Gagal generate boarding pass PDF:', err)
+    return c.json(
+      {
+        error: true,
+        message: 'Gagal membuat dokumen Boarding Pass PDF',
+        code: 'PDF_GENERATION_FAILED',
+      },
+      500,
+    )
+  }
 })
 
 export default checkinRoute
