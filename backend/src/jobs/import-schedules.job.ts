@@ -115,6 +115,9 @@ export async function importSchedulesJob(
 
     for (const item of items) {
       try {
+        const depTimeUtc = new Date(item.departureTimeUtc)
+        const arrTimeUtc = new Date(item.arrivalTimeUtc)
+
         // Cari airline & airplane
         const airline = airlineByCode.get(item.airlineCode.toUpperCase())
         if (!airline) {
@@ -158,7 +161,7 @@ export async function importSchedulesJob(
           // Update jadwal yang sudah ada (tanpa booking)
           const priceEconomy = calculateSimulatedPrice(
             item.durationMinutes,
-            item.departureTimeUtc.getUTCHours(),
+            depTimeUtc.getUTCHours(),
           )
           const priceBusiness = Math.round(priceEconomy * 2.5)
 
@@ -176,7 +179,7 @@ export async function importSchedulesJob(
           // Buat jadwal baru beserta segmen dan kursi
           const priceEconomy = calculateSimulatedPrice(
             item.durationMinutes,
-            item.departureTimeUtc.getUTCHours(),
+            depTimeUtc.getUTCHours(),
           )
           const priceBusiness = Math.round(priceEconomy * 2.5)
 
@@ -202,8 +205,8 @@ export async function importSchedulesJob(
               segmentOrder: 1,
               originAirportId: originAirport.id,
               destinationAirportId: destAirport.id,
-              departureTime: item.departureTimeUtc,
-              arrivalTime: item.arrivalTimeUtc,
+              departureTime: depTimeUtc,
+              arrivalTime: arrTimeUtc,
             })
 
             // Generate kursi (reuse seat-generator)

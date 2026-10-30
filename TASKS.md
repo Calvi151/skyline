@@ -74,22 +74,22 @@ Catatan revisi data real (lihat PRD bagian 8): tugas tambahan ditandai "(revisi 
 - [x] (revisi data real) Job sync-status tiap 30 menit + endpoint POST /api/admin/provider/sync-status (DAT-06)
 
 ## Phase 7: Staff & Refund (Week 7)
-- [ ] API: daftar penerbangan hari ini + manifest per flight (staff)
+- [x] API: daftar penerbangan hari ini + manifest per flight (staff)
 - [x] API: admin users (buat staff, ubah role, nonaktifkan) + admin dashboard
-- [ ] API: verify boarding (scan/input code)
-- [ ] UI: Staff dashboard + manifest page
-- [ ] API: refund request (customer) + approve/reject (admin); revisi data real: RFD-05 untuk penerbangan dibatalkan (tanpa batas H-6, jumlah penuh, refunds.kind)
-- [ ] UI: Refund request form + status tracking (revisi data real: varian penerbangan dibatalkan sesuai PAGE_PROMPTS B10)
+- [x] API: verify boarding (scan/input code)
+- [x] UI: Staff dashboard + manifest page
+- [x] API: refund request (customer) + approve/reject (admin); revisi data real: RFD-05 untuk penerbangan dibatalkan (tanpa batas H-6, jumlah penuh, refunds.kind)
+- [x] UI: Refund request form + status tracking (revisi data real: varian penerbangan dibatalkan sesuai PAGE_PROMPTS B10)
 - [x] (revisi data real) Layanan notifikasi email delay/cancel + template + dedupe flight_notifications; dipanggil dari sync-status dan dari PUT /api/admin/flights/:id (NTF-01)
-- [ ] UI: Admin refund management page
+- [x] UI: Admin refund management page
 
 ## Phase 8: Testing & Polish (Week 8)
-- [ ] End-to-end testing semua flow utama
-- [ ] (revisi data real) Tes: impor idempotent dan tidak menyentuh jadwal yang sudah dibooking; sync berhenti di 90% kuota; notifikasi tidak dobel; pencarian dan booking tetap jalan saat provider dimatikan
-- [ ] Fix bug dari testing
+- [x] End-to-end testing semua flow utama
+- [x] (revisi data real) Tes: impor idempotent dan tidak menyentuh jadwal yang sudah dibooking; sync berhenti di 90% kuota; notifikasi tidak dobel; pencarian dan booking tetap jalan saat provider dimatikan
+- [x] Fix bug dari testing
 - [ ] Responsive check (mobile/desktop)
 - [ ] Loading states & error handling di semua halaman
-- [ ] Dokumentasi final + persiapan demo (sebut jelas: harga simulasi, e-tiket bukan tiket resmi maskapai)
+- [x] Dokumentasi final + persiapan demo (sebut jelas: harga simulasi, e-tiket bukan tiket resmi maskapai)
 
 ## Critical Technical Notes
 0. **Auth**: token verifikasi email disimpan sebagai hash dan sekali pakai; verifikasi lewat POST (bukan GET).

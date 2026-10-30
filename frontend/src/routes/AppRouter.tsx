@@ -11,7 +11,11 @@ import AirplanesPage from '../pages/admin/Airplanes'
 import BaggageOptionsPage from '../pages/admin/BaggageOptions'
 import FlightsPage from '../pages/admin/Flights'
 import FlightFormPage from '../pages/admin/FlightForm'
+import RefundsPage from '../pages/admin/Refunds'
+import UsersPage from '../pages/admin/Users'
 import StaffDashboard from '../pages/staff/Dashboard'
+import FlightManifest from '../pages/staff/Manifest'
+import ScanBoarding from '../pages/staff/ScanBoarding'
 import Login from '../pages/auth/Login'
 import Register from '../pages/auth/Register'
 import CheckEmail from '../pages/auth/CheckEmail'
@@ -201,12 +205,46 @@ export default function AppRouter() {
           }
         />
 
-        {/* Staff */}
+        {/* Admin - Refunds & Users (Phase 7 & Stitch B18 / B17 Design) */}
+        <Route
+          path="/admin/refunds"
+          element={
+            <RoleRoute allowedRoles={['admin']}>
+              <RefundsPage />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="/admin/users"
+          element={
+            <RoleRoute allowedRoles={['admin']}>
+              <UsersPage />
+            </RoleRoute>
+          }
+        />
+
+        {/* Staff Operations (Phase 7 & Stitch B19 / B20 / B21 Design) */}
         <Route
           path="/staff"
           element={
             <RoleRoute allowedRoles={['staff', 'admin']}>
               <StaffDashboard />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="/staff/flights/:id/manifest"
+          element={
+            <RoleRoute allowedRoles={['staff', 'admin']}>
+              <FlightManifest />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="/staff/scan"
+          element={
+            <RoleRoute allowedRoles={['staff', 'admin']}>
+              <ScanBoarding />
             </RoleRoute>
           }
         />

@@ -19,6 +19,8 @@ import refundsRoute from './routes/admin/refunds.route.js'
 import checkinRoute from './routes/customer/checkin.route.js'
 import paymentRoute from './routes/payment.route.js'
 import customerRefundsRoute from './routes/customer/refunds.route.js'
+import staffFlightsRoute from './routes/staff/flights.route.js'
+import staffManifestRoute from './routes/staff/manifest.route.js'
 import { startExpireBookingsCron } from './jobs/expire-bookings.js'
 
 const app = new Hono()
@@ -57,6 +59,10 @@ app.route('/api/admin/provider', providerRoute)
 app.route('/api/admin/dashboard', dashboardRoute)
 app.route('/api/admin/users', usersRoute)
 app.route('/api/admin/refunds', refundsRoute)
+
+// Staff Routes (Phase 7)
+app.route('/api/staff/flights', staffFlightsRoute)
+app.route('/api/staff', staffManifestRoute)
 
 // 404 handler
 app.notFound((c) => {

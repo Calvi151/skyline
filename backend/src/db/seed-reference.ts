@@ -1,6 +1,7 @@
 import 'dotenv/config'
+import bcrypt from 'bcryptjs'
 import { db } from './index.js'
-import { airports, airlines, airplanes, baggageOptions } from './schema.js'
+import { airports, airlines, airplanes, baggageOptions, users } from './schema.js'
 import { eq } from 'drizzle-orm'
 
 // ─── Dataset Terbuka: Bandara Indonesia & Hub Internasional Utama (DAT-01) ───
@@ -225,6 +226,68 @@ async function seedReference() {
     }
   }
   console.log(`✅ Opsi bagasi selesai: ${baggageCount} baru ditambahkan.`)
+
+  // 4. Seed Akun Dummy untuk Pengetesan / Demo (Staff, Admin, Customer)
+  console.log('\n👤 Menyimpan akun dummy untuk pengetesan (Staff, Admin, Customer)...')
+  const defaultPasswordHash = await bcrypt.hash('Password123!', 10)
+  const DUMMY_USERS: Array<{
+    name: string
+    email: string
+    phone: string
+    role: 'staff' | 'admin' | 'customer'
+  }> = [
+    {
+      name: 'Petugas Boarding (Staff)',
+      email: 'staff@skybook.com',
+      phone: '081211112222',
+      role: 'staff',
+    },
+    {
+      name: 'Administrator SkyBook',
+      email: 'admin@skybook.com',
+      phone: '081200001111',
+      role: 'admin',
+    },
+    {
+      name: 'Pelanggan Demo',
+      email: 'customer@skybook.com',
+      phone: '081233334444',
+      role: 'customer',
+    },
+  ]
+
+  for (const u of DUMMY_USERS) {
+    const [existingUser] = await db
+      .select({ id: users.id })
+      .from(users)
+      .where(eq(users.email, u.email))
+      .limit(1)
+
+    if (existingUser) {
+      await db
+        .update(users)
+        .set({
+          name: u.name,
+          password: defaultPasswordHash,
+          phone: u.phone,
+          role: u.role,
+          isActive: true,
+          emailVerifiedAt: new Date(),
+        })
+        .where(eq(users.id, existingUser.id))
+    } else {
+      await db.insert(users).values({
+        name: u.name,
+        email: u.email,
+        password: defaultPasswordHash,
+        phone: u.phone,
+        role: u.role,
+        isActive: true,
+        emailVerifiedAt: new Date(),
+      })
+    }
+  }
+  console.log('✅ Akun dummy siap digunakan (password: Password123!)')
 
   console.log('\n🎉 Seeding data referensi (DAT-01 & DAT-05) berhasil diselesaikan!')
   process.exit(0)

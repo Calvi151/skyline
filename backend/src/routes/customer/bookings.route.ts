@@ -13,6 +13,7 @@ import {
   airlines,
   airplanes,
   payments,
+  refunds,
 } from '../../db/schema.js'
 import { authMiddleware, requireVerifiedEmail } from '../../middleware/auth.middleware.js'
 import { pdfService } from '../../services/pdf.service.js'
@@ -511,6 +512,14 @@ bookingsRoute.get('/:id', async (c) => {
     .orderBy(desc(payments.id))
     .limit(1)
 
+  // Fetch refund status if any
+  const [refund] = await db
+    .select()
+    .from(refunds)
+    .where(eq(refunds.bookingId, id))
+    .orderBy(desc(refunds.requestedAt))
+    .limit(1)
+
   const createdTime = booking.createdAt ? new Date(booking.createdAt) : new Date()
   const expiresAt = new Date(createdTime.getTime() + 60 * 60 * 1000)
 
@@ -542,6 +551,17 @@ bookingsRoute.get('/:id', async (c) => {
             payment_method: payment.paymentMethod,
             amount: Number(payment.amount),
             paid_at: payment.paidAt ? payment.paidAt.toISOString() : null,
+          }
+        : null,
+      refund: refund
+        ? {
+            id: refund.id,
+            status: refund.status,
+            kind: refund.kind,
+            reason: refund.reason,
+            refund_amount: Number(refund.refundAmount),
+            requested_at: refund.requestedAt ? refund.requestedAt.toISOString() : null,
+            processed_at: refund.processedAt ? refund.processedAt.toISOString() : null,
           }
         : null,
     },

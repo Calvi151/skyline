@@ -252,6 +252,12 @@ export class DuffelProvider implements FlightDataProvider {
       return cached
     }
 
+    // 2. Cek Kuota (DAT-07: berhenti di 90% kuota)
+    const quota = await quotaGuardService.checkQuota(this.name, 1)
+    if (!quota.allowed) {
+      throw new Error('PROVIDER_QUOTA_EXCEEDED')
+    }
+
     // Default status scheduled
     const result: ProviderFlightStatus = {
       flightNumber: cleanNumber,

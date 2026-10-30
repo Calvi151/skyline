@@ -1,16 +1,16 @@
 import { Hono } from 'hono'
-import { eq, desc, and } from 'drizzle-orm'
+import { eq, desc } from 'drizzle-orm'
 import { db } from '../../db/index.js'
 import {
   refunds,
   bookings,
   bookingPassengers,
-  flightSchedules,
   flightSegments,
   airports,
   users,
 } from '../../db/schema.js'
 import { authMiddleware, requireRole } from '../../middleware/auth.middleware.js'
+import { refundService } from '../../services/refund.service.js'
 import type { UserContext } from '../../types/index.js'
 
 const refundsRoute = new Hono<{
@@ -140,47 +140,56 @@ refundsRoute.put('/:id', async (c) => {
   }
 
   const body = await c.req.json().catch(() => ({}))
-  const { status, notes } = body
+  const { status } = body
 
-  if (!status || !['approved', 'rejected'].includes(status)) {
+  if (!status || !['approved', 'rejected', 'refunded'].includes(status)) {
     return c.json(
       {
         error: true,
-        message: 'Status refund harus "approved" atau "rejected"',
+        message: 'Status refund harus "approved", "rejected", atau "refunded"',
         code: 'VALIDATION_ERROR',
       },
       400,
     )
   }
 
-  const [refundItem] = await db.select().from(refunds).where(eq(refunds.id, id)).limit(1)
-  if (!refundItem) {
-    return c.json({ error: true, message: 'Permintaan refund tidak ditemukan', code: 'NOT_FOUND' }, 404)
-  }
-
-  const [updated] = await db
-    .update(refunds)
-    .set({
-      status: status as 'approved' | 'rejected',
-      processedBy: adminUserId,
-      processedAt: new Date(),
+  try {
+    const updated = await refundService.processRefundByAdmin({
+      refundId: id,
+      adminUserId,
+      status: status as 'approved' | 'rejected' | 'refunded',
     })
-    .where(eq(refunds.id, id))
-    .returning()
 
-  // If approved, update booking status to refunded
-  if (status === 'approved' && refundItem.bookingId) {
-    await db
-      .update(bookings)
-      .set({ status: 'refunded' })
-      .where(eq(bookings.id, refundItem.bookingId))
+    return c.json({
+      error: false,
+      message:
+        status === 'rejected'
+          ? 'Pengajuan refund berhasil ditolak'
+          : 'Pengajuan refund berhasil disetujui',
+      data: updated,
+    })
+  } catch (err: any) {
+    if (err && err.status && err.code) {
+      return c.json(
+        {
+          error: true,
+          message: err.message,
+          code: err.code,
+        },
+        err.status,
+      )
+    }
+
+    console.error('[AdminRefundsRoute] Gagal memproses refund:', err)
+    return c.json(
+      {
+        error: true,
+        message: 'Gagal memproses pengajuan refund',
+        code: 'PROCESS_REFUND_FAILED',
+      },
+      500,
+    )
   }
-
-  return c.json({
-    error: false,
-    message: status === 'approved' ? 'Pengajuan refund berhasil disetujui' : 'Pengajuan refund berhasil ditolak',
-    data: updated,
-  })
 })
 
 export default refundsRoute

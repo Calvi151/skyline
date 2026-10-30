@@ -1,14 +1,10 @@
 import { Hono } from 'hono'
-import { eq, desc, and } from 'drizzle-orm'
+import { eq, desc } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '../../db/index.js'
-import {
-  refunds,
-  bookings,
-  flightSchedules,
-  flightSegments,
-} from '../../db/schema.js'
+import { refunds, bookings } from '../../db/schema.js'
 import { authMiddleware } from '../../middleware/auth.middleware.js'
+import { refundService } from '../../services/refund.service.js'
 import type { UserContext } from '../../types/index.js'
 
 const customerRefundsRoute = new Hono<{
@@ -22,8 +18,22 @@ customerRefundsRoute.use('*', authMiddleware)
 
 const requestRefundSchema = z.object({
   booking_id: z.coerce.number().int().positive('ID pesanan wajib diisi'),
-  reason: z.string().min(10, 'Alasan pembatalan minimal 10 karakter').max(300, 'Alasan maksimal 300 karakter'),
+  reason: z.string().max(300, 'Alasan maksimal 300 karakter').optional().default(''),
   passenger_ids: z.array(z.number().int()).optional(),
+})
+
+/**
+ * GET /api/refunds/my
+ * Ambil daftar semua pengajuan refund milik user yang sedang login (API_SPEC.md)
+ */
+customerRefundsRoute.get('/my', async (c) => {
+  const userId = c.get('userId')
+  const data = await refundService.getCustomerRefunds(userId)
+
+  return c.json({
+    error: false,
+    data,
+  })
 })
 
 /**
@@ -79,7 +89,8 @@ customerRefundsRoute.get('/booking/:bookingId', async (c) => {
 
 /**
  * POST /api/refunds
- * Ajukan refund untuk pesanan yang sudah dibayar (atau penerbangan dibatalkan)
+ * Ajukan refund untuk pesanan yang sudah dibayar (RFD-01, RFD-02)
+ * atau penerbangan yang dibatalkan maskapai (RFD-05: tanpa batas H-6, penuh 100%, alasan otomatis)
  */
 customerRefundsRoute.post('/', async (c) => {
   const userId = c.get('userId')
@@ -100,126 +111,44 @@ customerRefundsRoute.post('/', async (c) => {
 
   const { booking_id, reason } = parsed.data
 
-  const [booking] = await db
-    .select()
-    .from(bookings)
-    .where(eq(bookings.id, booking_id))
-    .limit(1)
-
-  if (!booking) {
-    return c.json({ error: true, message: 'Pesanan tidak ditemukan', code: 'NOT_FOUND' }, 404)
-  }
-
-  if (booking.userId !== userId && userRole !== 'admin' && userRole !== 'staff') {
-    return c.json({ error: true, message: 'Anda tidak memiliki hak akses untuk pesanan ini', code: 'FORBIDDEN' }, 403)
-  }
-
-  // Cek apakah sudah ada refund pending atau approved
-  const [existingRefund] = await db
-    .select()
-    .from(refunds)
-    .where(and(eq(refunds.bookingId, booking.id), eq(refunds.status, 'pending')))
-    .limit(1)
-
-  if (existingRefund) {
-    return c.json(
-      {
-        error: true,
-        message: 'Pengajuan refund untuk pesanan ini sedang diproses oleh admin',
-        code: 'REFUND_ALREADY_PENDING',
-      },
-      400,
-    )
-  }
-
-  // Cek status jadwal penerbangan
-  const [schedule] = await db
-    .select()
-    .from(flightSchedules)
-    .where(eq(flightSchedules.id, booking.flightScheduleId!))
-    .limit(1)
-
-  const isFlightCancelled = schedule?.status === 'cancelled'
-
-  // Jika bukan dibatalkan maskapai, pesanan harus berstatus 'paid'
-  if (!isFlightCancelled && booking.status !== 'paid') {
-    return c.json(
-      {
-        error: true,
-        message: 'Hanya tiket berstatus lunas yang dapat diajukan refund',
-        code: 'BOOKING_NOT_PAID',
-      },
-      400,
-    )
-  }
-
-  // Cek aturan batas waktu: 6 jam sebelum keberangkatan (kecuali penerbangan dibatalkan maskapai)
-  const [firstSeg] = await db
-    .select()
-    .from(flightSegments)
-    .where(eq(flightSegments.flightScheduleId, booking.flightScheduleId!))
-    .orderBy(flightSegments.segmentOrder)
-    .limit(1)
-
-  const now = new Date()
-  let kind: 'customer' | 'flight_cancelled' = 'customer'
-  let refundAmount = Number(booking.totalPrice)
-
-  if (isFlightCancelled) {
-    kind = 'flight_cancelled'
-    // Refund penuh 100% tanpa potongan
-    refundAmount = Number(booking.totalPrice)
-  } else {
-    kind = 'customer'
-    if (firstSeg?.departureTime) {
-      const depTime = new Date(firstSeg.departureTime)
-      const hoursRemaining = (depTime.getTime() - now.getTime()) / (1000 * 60 * 60)
-
-      if (hoursRemaining < 6) {
-        return c.json(
-          {
-            error: true,
-            message: 'Batas waktu pengajuan refund maksimal 6 jam sebelum keberangkatan',
-            code: 'REFUND_TIME_LIMIT_EXCEEDED',
-          },
-          400,
-        )
-      }
-
-      // Potongan pembatalan mandiri: 20% biaya maskapai + Rp 25.000 administrasi
-      const cancellationFee = Math.round(refundAmount * 0.2)
-      const adminFee = 25000
-      refundAmount = Math.max(0, refundAmount - cancellationFee - adminFee)
-    }
-  }
-
-  const [newRefund] = await db
-    .insert(refunds)
-    .values({
-      bookingId: booking.id,
+  try {
+    const result = await refundService.createRefundRequest({
+      userId,
+      userRole,
+      bookingId: booking_id,
       reason,
-      refundAmount: refundAmount.toString(),
-      status: 'pending',
-      kind,
-      requestedAt: now,
     })
-    .returning()
 
-  return c.json({
-    error: false,
-    message: isFlightCancelled
-      ? 'Pengajuan refund penuh berhasil dikirim karena penerbangan dibatalkan.'
-      : 'Pengajuan refund berhasil dikirim dan sedang ditinjau.',
-    data: {
-      id: newRefund.id,
-      booking_id: newRefund.bookingId,
-      refund_amount: Number(newRefund.refundAmount),
-      status: newRefund.status,
-      kind: newRefund.kind,
-      requested_at: newRefund.requestedAt?.toISOString(),
-    },
-  })
+    return c.json({
+      error: false,
+      message:
+        result.kind === 'flight_cancelled'
+          ? 'Pengajuan refund penuh berhasil dikirim karena penerbangan dibatalkan.'
+          : 'Pengajuan refund berhasil dikirim dan sedang ditinjau.',
+      data: result,
+    })
+  } catch (err: any) {
+    if (err && err.status && err.code) {
+      return c.json(
+        {
+          error: true,
+          message: err.message,
+          code: err.code,
+        },
+        err.status,
+      )
+    }
+
+    console.error('[CustomerRefundsRoute] Gagal mengajukan refund:', err)
+    return c.json(
+      {
+        error: true,
+        message: 'Gagal memproses pengajuan refund',
+        code: 'REFUND_REQUEST_FAILED',
+      },
+      500,
+    )
+  }
 })
 
 export default customerRefundsRoute
-
