@@ -33,9 +33,9 @@ export default function StaffLayout({ children, activeFlightId }: StaffLayoutPro
   const staffRole = user?.role === 'admin' ? 'Super Admin' : 'Gate Crew'
 
   return (
-    <div className="min-h-screen bg-page text-ink font-sans antialiased flex flex-col justify-between">
-      {/* ─── FIXED STAFF TOPBAR (Stitch B19/B20/B21 Specification) ─── */}
-      <header className="fixed top-0 left-0 right-0 z-50 bg-panel/95 backdrop-blur-md border-b border-line shadow-sm">
+    <div className="min-h-screen bg-page text-ink font-sans antialiased flex flex-col justify-between print:min-h-0 print:bg-white print:text-black">
+      {/* ─── FIXED STAFF TOPBAR (Hidden in Print) ─── */}
+      <header className="fixed top-0 left-0 right-0 z-50 bg-panel/95 backdrop-blur-md border-b border-line shadow-sm print:hidden">
         <div className="h-[72px] max-w-[1440px] mx-auto px-4 sm:px-6 md:px-8 flex items-center justify-between gap-4">
           {/* Logo & Operational Badge */}
           <div className="flex items-center gap-3 shrink-0">
@@ -129,7 +129,7 @@ export default function StaffLayout({ children, activeFlightId }: StaffLayoutPro
       </header>
 
       {/* ─── MAIN CONTENT VIEWPORT ─── */}
-      <main className="w-full pt-[72px] flex-1">
+      <main className="w-full pt-[72px] flex-1 print:pt-0 print:m-0 print:p-0">
         {children}
       </main>
     </div>

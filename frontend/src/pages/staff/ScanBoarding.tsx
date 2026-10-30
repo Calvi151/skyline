@@ -3,81 +3,116 @@ import { useSearchParams, Link } from 'react-router-dom'
 import { api } from '../../lib/api'
 import StaffLayout from '../../components/layout/StaffLayout'
 
+interface FlightScheduleItem {
+  id: number
+  flight_number: string
+  airline: { name: string; code: string; logo?: string | null } | null
+  airplane: { model: string; registration_number: string } | null
+  route: string
+  origin: { code: string; city: string; name: string } | null
+  destination: { code: string; city: string; name: string } | null
+  departure_time: string | null
+  arrival_time: string | null
+  status: 'scheduled' | 'delayed' | 'cancelled'
+  delay_minutes: number
+  checked_in_count: number
+  boarded_count: number
+  passenger_count: number
+  total_capacity: number
+}
+
 interface VerifyPassengerData {
   check_in_id: number
   passenger_id: number
   passenger_name: string
+  id_number?: string
   seat_number: string
   seat_class?: string
   flight_schedule_id: number
   flight_number: string
+  airline?: { id?: number; name: string; code: string; logo?: string | null } | null
+  airplane?: { model: string; registration_number?: string } | null
+  origin?: { code: string; city: string; name: string } | null
+  destination?: { code: string; city: string; name: string } | null
+  departure_time?: string | null
   booking_code: string
   boarding_pass_code: string
   status: string
+  boarded_at?: string
 }
 
 interface ScanLogItem {
   id: string
   name: string
   seat: string
+  flightNumber: string
+  airlineName?: string
   pnr: string
   time: string
-  status: 'boarded' | 'already' | 'invalid'
+  status: 'boarded' | 'already' | 'wrong_flight' | 'invalid'
 }
 
 export default function ScanBoarding() {
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const flightIdParam = searchParams.get('flightId')
-  const flightScheduleId = flightIdParam ? Number(flightIdParam) : undefined
+  const [selectedFlightId, setSelectedFlightId] = useState<string>(flightIdParam || 'all')
+
+  const [flights, setFlights] = useState<FlightScheduleItem[]>([])
+  const [loadingFlights, setLoadingFlights] = useState(false)
 
   const [inputCode, setInputCode] = useState('')
   const [loading, setLoading] = useState(false)
   const [scanResult, setScanResult] = useState<{
-    status: 'idle' | 'valid' | 'already' | 'invalid'
+    status: 'idle' | 'valid' | 'already' | 'wrong_flight' | 'invalid'
     data?: VerifyPassengerData | null
     errorMessage?: string
   }>({ status: 'idle' })
 
-  const [recentScans, setRecentScans] = useState<ScanLogItem[]>([
-    {
-      id: '1',
-      name: 'Rina Wulandari',
-      seat: '14A',
-      pnr: 'K7QM4X',
-      time: 'Baru Saja',
-      status: 'boarded',
-    },
-    {
-      id: '2',
-      name: 'Dimas Pratama',
-      seat: '14B',
-      pnr: '8M2K1L',
-      time: '07.11 WIB',
-      status: 'boarded',
-    },
-    {
-      id: '3',
-      name: 'Hendra Kusuma',
-      seat: '14C',
-      pnr: 'V93N1A',
-      time: '07.10 WIB',
-      status: 'boarded',
-    },
-  ])
-
+  const [recentScans, setRecentScans] = useState<ScanLogItem[]>([])
   const [isCameraActive, setIsCameraActive] = useState(false)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
+
   const inputRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const scanIntervalRef = useRef<any>(null)
 
-  // Focus input automatically on mount
+  // Sync selected flight with query parameter
+  useEffect(() => {
+    if (flightIdParam) {
+      setSelectedFlightId(flightIdParam)
+    } else {
+      setSelectedFlightId('all')
+    }
+  }, [flightIdParam])
+
+  // Fetch all flight schedules to populate flight selector & dynamic banner
+  useEffect(() => {
+    const fetchFlights = async () => {
+      setLoadingFlights(true)
+      try {
+        const res = await api.get<{ error: boolean; data: FlightScheduleItem[] }>('/staff/flights?date=all')
+        if (res.data?.data) {
+          setFlights(res.data.data)
+        }
+      } catch (err) {
+        console.error('Gagal mengambil daftar penerbangan untuk scanner:', err)
+      } finally {
+        setLoadingFlights(false)
+      }
+    }
+
+    fetchFlights()
+  }, [])
+
+  // Auto-focus barcode input
   useEffect(() => {
     inputRef.current?.focus()
   }, [])
 
-  // Camera stream handler
+  // Handle camera stream & native barcode detection if available
   useEffect(() => {
     let stream: MediaStream | null = null
+
     if (isCameraActive) {
       navigator.mediaDevices
         ?.getUserMedia({ video: { facingMode: 'environment' } })
@@ -86,6 +121,34 @@ export default function ScanBoarding() {
           if (videoRef.current) {
             videoRef.current.srcObject = s
             videoRef.current.play().catch(() => {})
+
+            // Check if native BarcodeDetector API is available (Chrome / Edge)
+            if ('BarcodeDetector' in window) {
+              try {
+                // @ts-ignore
+                const detector = new window.BarcodeDetector({
+                  formats: ['qr_code', 'code_128', 'code_39', 'ean_13', 'pdf417'],
+                })
+
+                scanIntervalRef.current = setInterval(async () => {
+                  if (videoRef.current && !loading) {
+                    try {
+                      const barcodes = await detector.detect(videoRef.current)
+                      if (barcodes && barcodes.length > 0) {
+                        const detected = barcodes[0].rawValue
+                        if (detected && detected.trim() !== inputCode) {
+                          handleVerify(detected.trim())
+                        }
+                      }
+                    } catch {
+                      // ignore scan frame errors
+                    }
+                  }
+                }, 500)
+              } catch {
+                // BarcodeDetector initialization fallback
+              }
+            }
           }
         })
         .catch((err) => {
@@ -93,12 +156,31 @@ export default function ScanBoarding() {
           setIsCameraActive(false)
         })
     }
+
     return () => {
+      if (scanIntervalRef.current) {
+        clearInterval(scanIntervalRef.current)
+      }
       if (stream) {
         stream.getTracks().forEach((track) => track.stop())
       }
     }
-  }, [isCameraActive])
+  }, [isCameraActive, loading])
+
+  // Active flight context
+  const activeFlight = flights.find((f) => f.id === Number(selectedFlightId))
+
+  // Handle flight selector change
+  const handleFlightSelectChange = (newId: string) => {
+    setSelectedFlightId(newId)
+    if (newId === 'all') {
+      setSearchParams({})
+    } else {
+      setSearchParams({ flightId: newId })
+    }
+    setScanResult({ status: 'idle' })
+    inputRef.current?.focus()
+  }
 
   // Handle Verify Boarding
   const handleVerify = async (codeToVerify?: string) => {
@@ -113,7 +195,7 @@ export default function ScanBoarding() {
         data: VerifyPassengerData
       }>('/staff/verify-boarding', {
         boarding_pass_code: raw,
-        flight_schedule_id: flightScheduleId,
+        flight_schedule_id: selectedFlightId !== 'all' ? Number(selectedFlightId) : undefined,
       })
 
       const passengerData = res.data?.data
@@ -122,11 +204,12 @@ export default function ScanBoarding() {
         data: passengerData,
       })
 
-      // Add to recent scans
+      // Add to recent scans log
       const nowStr = new Date().toLocaleTimeString('id-ID', {
         hour: '2-digit',
         minute: '2-digit',
         second: '2-digit',
+        timeZone: 'Asia/Jakarta',
       }) + ' WIB'
 
       setRecentScans((prev) => [
@@ -134,6 +217,8 @@ export default function ScanBoarding() {
           id: String(Date.now()),
           name: passengerData.passenger_name,
           seat: passengerData.seat_number,
+          flightNumber: passengerData.flight_number,
+          airlineName: passengerData.airline?.name,
           pnr: passengerData.booking_code,
           time: nowStr,
           status: 'boarded',
@@ -141,21 +226,67 @@ export default function ScanBoarding() {
         ...prev.slice(0, 4),
       ])
 
+      const airlineInfo = passengerData.airline?.name ? `${passengerData.airline.name} ` : ''
       setToastMessage(
-        `${passengerData.passenger_name} (Kursi ${passengerData.seat_number}) berhasil diverifikasi naik pesawat.`
+        `${passengerData.passenger_name} (${airlineInfo}${passengerData.flight_number} • Kursi ${passengerData.seat_number}) diverifikasi naik pesawat.`
       )
       setInputCode('')
     } catch (err: any) {
       const errCode = err.response?.data?.code
       const errMsg = err.response?.data?.message || 'Kode boarding pass tidak valid'
+      const errData = err.response?.data?.data as VerifyPassengerData | undefined
 
-      if (errCode === 'ALREADY_BOARDED') {
-        const extraData = err.response?.data?.data
+      const nowStr = new Date().toLocaleTimeString('id-ID', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        timeZone: 'Asia/Jakarta',
+      }) + ' WIB'
+
+      if (errCode === 'WRONG_FLIGHT') {
         setScanResult({
-          status: 'already',
-          data: extraData || null,
+          status: 'wrong_flight',
+          data: errData || null,
           errorMessage: errMsg,
         })
+
+        if (errData) {
+          setRecentScans((prev) => [
+            {
+              id: String(Date.now()),
+              name: errData.passenger_name || 'Penumpang',
+              seat: errData.seat_number || 'N/A',
+              flightNumber: errData.flight_number || 'Lain',
+              airlineName: errData.airline?.name,
+              pnr: errData.booking_code || raw,
+              time: nowStr,
+              status: 'wrong_flight',
+            },
+            ...prev.slice(0, 4),
+          ])
+        }
+      } else if (errCode === 'ALREADY_BOARDED') {
+        setScanResult({
+          status: 'already',
+          data: errData || null,
+          errorMessage: errMsg,
+        })
+
+        if (errData) {
+          setRecentScans((prev) => [
+            {
+              id: String(Date.now()),
+              name: errData.passenger_name,
+              seat: errData.seat_number,
+              flightNumber: errData.flight_number,
+              airlineName: errData.airline?.name,
+              pnr: errData.booking_code,
+              time: nowStr,
+              status: 'already',
+            },
+            ...prev.slice(0, 4),
+          ])
+        }
       } else {
         setScanResult({
           status: 'invalid',
@@ -176,89 +307,173 @@ export default function ScanBoarding() {
     }
   }
 
+  // Format Indonesian date/time helpers
+  const formatTimeStr = (iso?: string | null) => {
+    if (!iso) return '--.-- WIB'
+    try {
+      const d = new Date(iso)
+      return (
+        d.toLocaleTimeString('id-ID', {
+          hour: '2-digit',
+          minute: '2-digit',
+          timeZone: 'Asia/Jakarta',
+        }) + ' WIB'
+      )
+    } catch {
+      return '--.-- WIB'
+    }
+  }
+
   return (
-    <StaffLayout activeFlightId={flightScheduleId || 1}>
+    <StaffLayout activeFlightId={selectedFlightId !== 'all' ? Number(selectedFlightId) : null}>
       <div className="max-w-[1440px] mx-auto px-4 sm:px-6 md:px-8 py-5 flex flex-col gap-5">
-        {/* ─── BREADCRUMB & CONTEXT TOPBAR ─── */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-2 pb-1">
-          <div className="flex items-center gap-2 text-subtle text-xs">
+        {/* ─── TOP BAR & MODE SELECTOR ─── */}
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 pb-1">
+          <div className="flex items-center gap-2 text-subtle text-xs flex-wrap">
             <Link
               to="/staff"
               className="inline-flex items-center gap-1 hover:text-brand-fg transition-colors"
             >
               <span className="material-symbols-outlined text-[16px]">arrow_back</span>
-              <span>Kembali ke Penerbangan Hari Ini</span>
+              <span>Penerbangan Hari Ini</span>
             </Link>
             <span className="text-line">•</span>
             <Link
-              to={flightScheduleId ? `/staff/flights/${flightScheduleId}/manifest` : '/staff/flights/1/manifest'}
+              to={selectedFlightId !== 'all' ? `/staff/flights/${selectedFlightId}/manifest` : '/staff'}
               className="hover:text-brand-fg transition-colors font-medium text-ink"
             >
               Manifest Penerbangan
             </Link>
           </div>
 
-          <div className="flex items-center gap-2 text-xs">
-            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-tint text-brand-fg font-semibold uppercase tracking-wider text-[11px]">
+          <div className="flex items-center gap-3">
+            {/* Flight Gate Switcher Dropdown */}
+            <div className="flex items-center gap-2">
+              <label htmlFor="flight-select" className="text-xs font-semibold text-subtle whitespace-nowrap">
+                Fokus Gerbang / Mode:
+              </label>
+              <select
+                id="flight-select"
+                disabled={loadingFlights}
+                value={selectedFlightId}
+                onChange={(e) => handleFlightSelectChange(e.target.value)}
+                className="h-9 px-3 rounded-control bg-panel border border-line text-xs font-semibold text-ink focus:outline-none focus:ring-2 focus:ring-brand-fg shadow-xs cursor-pointer disabled:opacity-60"
+              >
+                <option value="all">🌐 Semua Maskapai (Auto-Detect Universal)</option>
+                {flights.map((f) => (
+                  <option key={f.id} value={String(f.id)}>
+                    {f.airline?.name || 'Maskapai'} {f.flight_number} • {f.origin?.code} → {f.destination?.code} ({formatTimeStr(f.departure_time)})
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-tint text-brand-fg font-semibold uppercase tracking-wider text-[11px] shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-              DCS Gate Link Aktif
+              <span>{selectedFlightId === 'all' ? 'Auto-Detect Aktif' : 'Gate Lock Aktif'}</span>
             </span>
-            <span className="tabular-nums text-subtle font-medium">Sesi: G14-OP-02</span>
           </div>
         </div>
 
-        {/* ─── FLIGHT OPERATIONAL BANNER ─── */}
+        {/* ─── DYNAMIC OPERATIONAL BANNER ─── */}
         <div className="bg-panel border border-line rounded-ticket p-5 shadow-xs">
           <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-            <div className="flex flex-col gap-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <span className="font-bold text-base text-ink tracking-tight">
-                  Kenari Air • Penerbangan KA 412
-                </span>
-                <span className="px-2.5 py-0.5 rounded-full bg-success/15 text-success text-xs font-semibold flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-success" />
-                  Pintu Gerbang Dibuka • Sisa 26 Menit
-                </span>
+            {selectedFlightId === 'all' ? (
+              /* Universal Scanner Mode Header */
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-base text-ink tracking-tight flex items-center gap-2">
+                    <span className="material-symbols-outlined text-brand-fg text-[22px]">travel_explore</span>
+                    <span>Scanner Universal Multi-Maskapai (Auto-Detect Aktif)</span>
+                  </span>
+                  <span className="px-2.5 py-0.5 rounded-full bg-tint text-brand-fg text-xs font-semibold">
+                    Semua Penerbangan Siap Dipindai
+                  </span>
+                </div>
+                <p className="text-subtle text-xs leading-relaxed max-w-3xl">
+                  Pindai boarding pass apa pun. Sistem secara otomatis mengenali maskapai, nomor penerbangan, rute, dan identitas penumpang tanpa perlu memilih jadwal secara manual.
+                </p>
               </div>
-              <div className="flex items-center gap-2 text-subtle text-xs flex-wrap">
-                <span className="font-semibold text-ink">Jakarta (CGK)</span>
-                <span className="material-symbols-outlined text-[14px] text-brand-fg">
-                  arrow_forward
-                </span>
-                <span className="font-semibold text-ink">Denpasar (DPS)</span>
-                <span>•</span>
-                <span>
-                  Gerbang 14 • Keberangkatan <strong className="text-ink tabular-nums">07.40 WIB</strong>
-                </span>
-                <span>•</span>
-                <span>Boeing 737-800NG (PK-LKB)</span>
+            ) : activeFlight ? (
+              /* Locked Specific Flight Header */
+              <div className="flex flex-col gap-1">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <span className="font-bold text-base text-ink tracking-tight">
+                    {activeFlight.airline?.name || 'Maskapai'} • Penerbangan {activeFlight.flight_number}
+                  </span>
+                  <span className={`px-2.5 py-0.5 rounded-full text-xs font-semibold flex items-center gap-1 ${
+                    activeFlight.status === 'delayed'
+                      ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400'
+                      : activeFlight.status === 'cancelled'
+                      ? 'bg-danger/15 text-danger'
+                      : 'bg-success/15 text-success'
+                  }`}>
+                    <span className="w-1.5 h-1.5 rounded-full bg-current" />
+                    <span>
+                      {activeFlight.status === 'delayed'
+                        ? `Tertunda ${activeFlight.delay_minutes} Menit`
+                        : activeFlight.status === 'cancelled'
+                        ? 'Dibatalkan'
+                        : 'Pintu Gerbang Dibuka'}
+                    </span>
+                  </span>
+                </div>
+                <div className="flex items-center gap-2 text-subtle text-xs flex-wrap">
+                  <span className="font-semibold text-ink">
+                    {activeFlight.origin?.city} ({activeFlight.origin?.code})
+                  </span>
+                  <span className="material-symbols-outlined text-[14px] text-brand-fg">arrow_forward</span>
+                  <span className="font-semibold text-ink">
+                    {activeFlight.destination?.city} ({activeFlight.destination?.code})
+                  </span>
+                  <span>•</span>
+                  <span>
+                    Keberangkatan <strong className="text-ink tabular-nums">{formatTimeStr(activeFlight.departure_time)}</strong>
+                  </span>
+                  {activeFlight.airplane && (
+                    <>
+                      <span>•</span>
+                      <span>{activeFlight.airplane.model} ({activeFlight.airplane.registration_number})</span>
+                    </>
+                  )}
+                  <span>•</span>
+                  <span className="text-brand-fg font-semibold">
+                    {activeFlight.boarded_count} / {activeFlight.passenger_count || activeFlight.total_capacity} Penumpang Naik
+                  </span>
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="flex items-center gap-2 text-subtle text-xs">
+                <span>Memuat informasi penerbangan...</span>
+              </div>
+            )}
 
             <div className="flex items-center gap-2 shrink-0">
-              <Link
-                to={flightScheduleId ? `/staff/flights/${flightScheduleId}/manifest` : '/staff/flights/1/manifest'}
-                className="px-3.5 py-2 rounded-control bg-raised border border-line hover:bg-tint text-ink text-xs font-semibold transition-colors flex items-center gap-1.5"
-              >
-                <span className="material-symbols-outlined text-[16px]">table_chart</span>
-                Lihat Manifest Lengkap
-              </Link>
+              {selectedFlightId !== 'all' && (
+                <Link
+                  to={`/staff/flights/${selectedFlightId}/manifest`}
+                  className="px-3.5 py-2 rounded-control bg-raised border border-line hover:bg-tint text-ink text-xs font-semibold transition-colors flex items-center gap-1.5"
+                >
+                  <span className="material-symbols-outlined text-[16px]">table_chart</span>
+                  <span>Lihat Manifest Penerbangan Ini</span>
+                </Link>
+              )}
             </div>
           </div>
         </div>
 
-        {/* ─── MAIN 2-COLUMN BOARDING SCANNER ENGINE (50% / 50%) ─── */}
+        {/* ─── MAIN 2-COLUMN BOARDING SCANNER ENGINE ─── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           {/* ── LEFT COLUMN: SCANNER INPUT & VIEWFINDER ── */}
           <div className="flex flex-col gap-5">
-            {/* 1. Manual / Barcode Scanner Input */}
+            {/* 1. Barcode / PNR Input Box */}
             <div className="bg-panel border border-line rounded-ticket p-5 shadow-xs">
               <div className="flex items-center justify-between pb-1">
                 <label htmlFor="barcode-input" className="text-xs font-bold text-ink">
-                  Kode boarding pass atau kode booking (PNR)
+                  Kode Boarding Pass atau Kode Booking (PNR)
                 </label>
-                <span className="text-[10px] uppercase font-bold text-subtle tracking-wider">
-                  Auto-Detect
+                <span className="text-[10px] uppercase font-bold text-brand-fg tracking-wider bg-tint px-2 py-0.5 rounded">
+                  {selectedFlightId === 'all' ? 'Auto-Detect Universal' : 'Gate Locked'}
                 </span>
               </div>
 
@@ -274,7 +489,7 @@ export default function ScanBoarding() {
                     value={inputCode}
                     onChange={(e) => setInputCode(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="Contoh: BP-93X1-RW atau K7QM4X"
+                    placeholder="Contoh: BP-9JFCSZ-1-XYZ atau 9JFCSZ"
                     className="w-full h-12 pl-11 pr-9 rounded-control bg-panel border-2 border-brand text-ink text-sm font-mono tracking-wider focus:outline-none focus:ring-4 focus:ring-brand/10 transition-all font-bold uppercase"
                   />
                   {inputCode && (
@@ -289,9 +504,9 @@ export default function ScanBoarding() {
                 </div>
                 <button
                   type="button"
-                  disabled={loading}
+                  disabled={loading || !inputCode.trim()}
                   onClick={() => handleVerify()}
-                  className="h-12 px-6 rounded-control bg-brand hover:bg-brand-hover text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-[0.98]"
+                  className="h-12 px-6 rounded-control bg-brand hover:bg-brand-hover text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-[0.98] disabled:opacity-50"
                 >
                   {loading ? (
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -307,7 +522,7 @@ export default function ScanBoarding() {
               <div className="mt-2.5 flex items-center gap-1.5 text-subtle text-[11px]">
                 <span className="material-symbols-outlined text-[14px]">info</span>
                 <span>
-                  Mendukung pemindai barcode laser USB/Bluetooth atau ketik manual 6–10 karakter lalu tekan Enter.
+                  Mendukung scanner laser USB/Bluetooth langsung, kamera ponsel/laptop, atau ketik kode PNR 6 digit lalu Enter.
                 </span>
               </div>
             </div>
@@ -325,7 +540,7 @@ export default function ScanBoarding() {
                 </div>
               </div>
 
-              {/* Viewfinder Area */}
+              {/* Viewfinder Frame */}
               <div className="relative w-full max-w-[360px] mx-auto aspect-square my-4 rounded-xl bg-[#0B2545] overflow-hidden flex items-center justify-center border-2 border-line/60">
                 {isCameraActive ? (
                   <video
@@ -344,23 +559,21 @@ export default function ScanBoarding() {
                 <div className="absolute bottom-6 left-6 w-8 h-8 border-b-4 border-l-4 border-brand rounded-bl-sm pointer-events-none" />
                 <div className="absolute bottom-6 right-6 w-8 h-8 border-b-4 border-r-4 border-brand rounded-br-sm pointer-events-none" />
 
-                {/* Scanning Laser Line */}
+                {/* Laser Bar */}
                 <div className="absolute left-6 right-6 top-1/2 -translate-y-1/2 h-0.5 bg-brand shadow-[0_0_12px_#1d5bd6] opacity-90 animate-pulse pointer-events-none" />
 
                 {/* QR Silhouette */}
                 {!isCameraActive && (
                   <div className="w-36 h-36 border-2 border-dashed border-brand/40 rounded-lg flex flex-col items-center justify-center p-3 text-center pointer-events-none">
-                    <span className="material-symbols-outlined text-brand/60 text-[52px]">
-                      qr_code_2
-                    </span>
+                    <span className="material-symbols-outlined text-brand/60 text-[52px]">qr_code_2</span>
                   </div>
                 )}
 
-                {/* Instructions Overlay */}
+                {/* Guidance Overlay */}
                 <div className="absolute bottom-3 inset-x-4 text-center">
                   <span className="inline-block px-3 py-1 rounded-full bg-panel/90 text-ink text-[11px] font-semibold shadow-xs">
                     {isCameraActive
-                      ? 'Arahkan kamera ke QR boarding pass penumpang'
+                      ? 'Arahkan kamera ke QR / Barcode boarding pass'
                       : 'Nyalakan kamera untuk pemindaian visual langsung'}
                   </span>
                 </div>
@@ -370,7 +583,7 @@ export default function ScanBoarding() {
               <div className="pt-2 flex items-center justify-between gap-2 border-t border-line text-xs">
                 <div className="flex items-center gap-1.5 text-subtle">
                   <span className="material-symbols-outlined text-[18px]">photo_camera_front</span>
-                  <span>Kamera Depan Gerbang 14</span>
+                  <span>Sensor Kamera Perangkat</span>
                 </div>
                 <button
                   type="button"
@@ -390,10 +603,10 @@ export default function ScanBoarding() {
             </div>
           </div>
 
-          {/* ── RIGHT COLUMN: SCAN RESULT CARD & RECENT SCANS ── */}
+          {/* ── RIGHT COLUMN: DETECTED AIRLINE RESULT & RECENT SCANS ── */}
           <div className="flex flex-col gap-5">
-            {/* Quick Demo Switcher Tabs */}
-            <div className="bg-raised border border-line rounded-control p-1 flex items-center gap-1 text-xs font-semibold">
+            {/* Quick Simulation Tabs for Testing */}
+            <div className="bg-raised border border-line rounded-control p-1 flex items-center gap-1 text-[11px] font-semibold overflow-x-auto">
               <button
                 type="button"
                 onClick={() =>
@@ -402,75 +615,116 @@ export default function ScanBoarding() {
                     data: {
                       check_in_id: 1,
                       passenger_id: 1,
-                      passenger_name: 'Rina Wulandari',
+                      passenger_name: 'Budi Test Passenger',
                       seat_number: '14A',
+                      seat_class: 'economy',
                       flight_schedule_id: 1,
-                      flight_number: 'KA 412',
-                      booking_code: 'K7QM4X',
-                      boarding_pass_code: 'BP-93X1-RW',
+                      flight_number: 'GA 142',
+                      airline: { name: 'Garuda Indonesia', code: 'GA' },
+                      origin: { code: 'CGK', city: 'Jakarta', name: 'Soekarno-Hatta' },
+                      destination: { code: 'DPS', city: 'Denpasar', name: 'Ngurah Rai' },
+                      departure_time: new Date().toISOString(),
+                      booking_code: '9JFCSZ',
+                      boarding_pass_code: 'BP-9JFCSZ-1-RW',
                       status: 'boarded',
                     },
                   })
                 }
-                className={`flex-1 py-1 px-2.5 rounded text-center transition-all flex items-center justify-center gap-1 ${
+                className={`flex-1 py-1 px-2 rounded text-center transition-all flex items-center justify-center gap-1 whitespace-nowrap ${
                   scanResult.status === 'valid'
-                    ? 'bg-panel text-brand-fg shadow-xs font-bold'
+                    ? 'bg-panel text-success shadow-xs font-bold'
                     : 'text-subtle hover:text-ink'
                 }`}
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-success" />
-                <span>Valid (Siap Naik)</span>
+                <span>Simulasi Valid</span>
               </button>
+
+              <button
+                type="button"
+                onClick={() =>
+                  setScanResult({
+                    status: 'wrong_flight',
+                    data: {
+                      check_in_id: 2,
+                      passenger_id: 2,
+                      passenger_name: 'Siti Rahmawati',
+                      seat_number: '12B',
+                      flight_schedule_id: 99,
+                      flight_number: 'JT 204',
+                      airline: { name: 'Lion Air', code: 'JT' },
+                      origin: { code: 'CGK', city: 'Jakarta', name: 'Soekarno-Hatta' },
+                      destination: { code: 'SUB', city: 'Surabaya', name: 'Juanda' },
+                      departure_time: new Date().toISOString(),
+                      booking_code: 'P9L2M7',
+                      boarding_pass_code: 'BP-P9L2M7-2-SR',
+                      status: 'checked_in',
+                    },
+                    errorMessage: 'Kode boarding ini milik penerbangan lain (Lion Air JT 204)',
+                  })
+                }
+                className={`flex-1 py-1 px-2 rounded text-center transition-all flex items-center justify-center gap-1 whitespace-nowrap ${
+                  scanResult.status === 'wrong_flight'
+                    ? 'bg-panel text-amber-600 shadow-xs font-bold'
+                    : 'text-subtle hover:text-ink'
+                }`}
+              >
+                <span className="w-1.5 h-1.5 rounded-full bg-amber-500" />
+                <span>Simulasi Beda Pesawat</span>
+              </button>
+
               <button
                 type="button"
                 onClick={() =>
                   setScanResult({
                     status: 'already',
                     data: {
-                      check_in_id: 2,
-                      passenger_id: 2,
+                      check_in_id: 3,
+                      passenger_id: 3,
                       passenger_name: 'Dewi Lestari',
                       seat_number: '15A',
                       flight_schedule_id: 1,
-                      flight_number: 'KA 412',
+                      flight_number: 'GA 142',
+                      airline: { name: 'Garuda Indonesia', code: 'GA' },
+                      origin: { code: 'CGK', city: 'Jakarta', name: 'Soekarno-Hatta' },
+                      destination: { code: 'DPS', city: 'Denpasar', name: 'Ngurah Rai' },
                       booking_code: 'P9L2M7',
-                      boarding_pass_code: 'BP-5531-DL',
+                      boarding_pass_code: 'BP-P9L2M7-3-DL',
                       status: 'boarded',
                     },
-                    errorMessage:
-                      'Penumpang Dewi Lestari (Kursi 15A) sudah tercatat naik pesawat sebelumnya',
+                    errorMessage: 'Penumpang Dewi Lestari (Kursi 15A) sudah tercatat naik pesawat sebelumnya',
                   })
                 }
-                className={`flex-1 py-1 px-2.5 rounded text-center transition-all flex items-center justify-center gap-1 ${
+                className={`flex-1 py-1 px-2 rounded text-center transition-all flex items-center justify-center gap-1 whitespace-nowrap ${
                   scanResult.status === 'already'
                     ? 'bg-panel text-brand-fg shadow-xs font-bold'
                     : 'text-subtle hover:text-ink'
                 }`}
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-subtle" />
-                <span>Sudah Naik</span>
+                <span>Simulasi Sudah Naik</span>
               </button>
+
               <button
                 type="button"
                 onClick={() =>
                   setScanResult({
                     status: 'invalid',
-                    errorMessage:
-                      'Kode boarding pass tidak ditemukan dalam manifest penerbangan ini.',
+                    errorMessage: 'Kode boarding pass tidak ditemukan di sistem maskapai.',
                   })
                 }
-                className={`flex-1 py-1 px-2.5 rounded text-center transition-all flex items-center justify-center gap-1 ${
+                className={`flex-1 py-1 px-2 rounded text-center transition-all flex items-center justify-center gap-1 whitespace-nowrap ${
                   scanResult.status === 'invalid'
-                    ? 'bg-panel text-brand-fg shadow-xs font-bold'
+                    ? 'bg-panel text-danger shadow-xs font-bold'
                     : 'text-subtle hover:text-ink'
                 }`}
               >
                 <span className="w-1.5 h-1.5 rounded-full bg-danger" />
-                <span>Tidak Ditemukan</span>
+                <span>Simulasi Ditolak</span>
               </button>
             </div>
 
-            {/* RESULT CARD A: VALID & READY */}
+            {/* ─── CASE A: VALID & BOARDED CARD ─── */}
             {scanResult.status === 'valid' && scanResult.data && (
               <div className="bg-panel border-2 border-success/40 rounded-ticket p-5 shadow-sm flex flex-col gap-4 animate-fadeIn">
                 <div className="flex items-center justify-between pb-2 border-b border-line">
@@ -483,7 +737,7 @@ export default function ScanBoarding() {
                         Boarding Pass Terverifikasi
                       </span>
                       <span className="text-[11px] text-subtle">
-                        Penumpang telah terdaftar di sistem DCS &amp; siap masuk pesawat
+                        Data maskapai &amp; manifest cocok. Penumpang resmi naik pesawat.
                       </span>
                     </div>
                   </div>
@@ -492,9 +746,25 @@ export default function ScanBoarding() {
                   </span>
                 </div>
 
-                {/* Passenger Notch Ticket Card */}
+                {/* Detected Airline Card Notch */}
                 <div className="bg-raised border border-line rounded-control p-4 flex flex-col gap-3">
-                  <div className="flex items-start justify-between gap-4">
+                  {/* Airline Identified Header */}
+                  <div className="flex items-center justify-between bg-panel p-2.5 rounded-control border border-line">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-brand-fg text-[20px]">airlines</span>
+                      <div>
+                        <span className="text-[10px] uppercase font-bold text-subtle block">Maskapai Terdeteksi</span>
+                        <span className="text-sm font-bold text-ink">
+                          {scanResult.data.airline?.name || 'Maskapai Penerbangan'} ({scanResult.data.flight_number})
+                        </span>
+                      </div>
+                    </div>
+                    <span className="text-xs font-mono font-bold bg-tint text-brand-fg px-2.5 py-1 rounded">
+                      PNR: {scanResult.data.booking_code}
+                    </span>
+                  </div>
+
+                  <div className="flex items-start justify-between gap-4 pt-1">
                     <div>
                       <span className="text-[10px] uppercase font-semibold text-subtle">
                         Nama Lengkap Penumpang
@@ -504,11 +774,13 @@ export default function ScanBoarding() {
                       </h2>
                       <div className="flex items-center gap-2 mt-1">
                         <span className="px-2 py-0.5 rounded bg-tint text-brand-fg font-semibold text-[10px] uppercase">
-                          Dewasa (Adult)
+                          {scanResult.data.seat_class || 'Ekonomi'}
                         </span>
-                        <span className="text-xs text-subtle font-mono">
-                          SkyMiles: #SK-881923
-                        </span>
+                        {scanResult.data.id_number && (
+                          <span className="text-xs text-subtle font-mono">
+                            ID: {scanResult.data.id_number}
+                          </span>
+                        )}
                       </div>
                     </div>
 
@@ -521,64 +793,152 @@ export default function ScanBoarding() {
                         {scanResult.data.seat_number}
                       </span>
                       <span className="text-[11px] font-medium text-ink block">
-                        Lorong Kiri • Jendela
+                        Kabin Terverifikasi
                       </span>
                     </div>
                   </div>
 
                   <div className="border-b border-dashed border-line my-1" />
 
-                  {/* Metadata Grid */}
+                  {/* Flight & Route Details Grid */}
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+                    <div>
+                      <span className="text-[10px] uppercase font-semibold text-subtle block">Rute</span>
+                      <strong className="text-ink">
+                        {scanResult.data.origin?.code || 'ORIGIN'} → {scanResult.data.destination?.code || 'DEST'}
+                      </strong>
+                      <span className="text-subtle text-[11px] block truncate">
+                        {scanResult.data.destination?.city || ''}
+                      </span>
+                    </div>
                     <div>
                       <span className="text-[10px] uppercase font-semibold text-subtle block">Penerbangan</span>
                       <strong className="text-ink">{scanResult.data.flight_number}</strong>
-                      <span className="text-subtle text-[11px] block">CGK → DPS</span>
+                      <span className="text-subtle text-[11px] block">
+                        {scanResult.data.airline?.code || ''}
+                      </span>
                     </div>
                     <div>
-                      <span className="text-[10px] uppercase font-semibold text-subtle block">Kelas &amp; Gerbang</span>
-                      <strong className="text-ink">Ekonomi</strong>
-                      <span className="text-subtle text-[11px] block">Gate 14</span>
+                      <span className="text-[10px] uppercase font-semibold text-subtle block">Jadwal Keberangkatan</span>
+                      <strong className="text-ink tabular-nums">
+                        {formatTimeStr(scanResult.data.departure_time)}
+                      </strong>
+                      <span className="text-subtle text-[11px] block">Gate Terverifikasi</span>
                     </div>
                     <div>
-                      <span className="text-[10px] uppercase font-semibold text-subtle block">Jadwal Boarding</span>
-                      <strong className="text-ink">07.10 WIB</strong>
-                      <span className="text-subtle text-[11px] block">Zona 2</span>
-                    </div>
-                    <div>
-                      <span className="text-[10px] uppercase font-semibold text-subtle block">Kode PNR / BP</span>
-                      <strong className="text-brand-fg font-mono">{scanResult.data.booking_code}</strong>
-                      <span className="text-subtle text-[10px] font-mono block">
+                      <span className="text-[10px] uppercase font-semibold text-subtle block">Kode Boarding</span>
+                      <strong className="text-brand-fg font-mono text-[11px] block truncate">
                         {scanResult.data.boarding_pass_code}
+                      </strong>
+                      <span className="text-success text-[10px] font-semibold block">
+                        Status: Boarded
                       </span>
                     </div>
-                  </div>
-
-                  {/* Baggage Indicator */}
-                  <div className="p-2.5 rounded bg-panel border border-line flex items-center justify-between text-xs">
-                    <div className="flex items-center gap-2">
-                      <span className="material-symbols-outlined text-success text-[18px]">
-                        luggage
-                      </span>
-                      <span>
-                        <strong>Bagasi Terverifikasi:</strong> 1 Koli (20 kg) + 7 kg Kabin
-                      </span>
-                    </div>
-                    <span className="text-success font-semibold text-[11px] flex items-center gap-0.5">
-                      <span className="material-symbols-outlined text-[14px]">done</span>
-                      Sesuai
-                    </span>
                   </div>
                 </div>
 
-                <div className="p-3 bg-success/10 rounded-control border border-success/30 flex items-center gap-2 text-xs font-semibold text-success">
-                  <span className="material-symbols-outlined text-[18px]">check_circle</span>
-                  <span>Penumpang berhasil dicatat masuk ke kabin pesawat.</span>
+                <div className="p-3 bg-success/10 rounded-control border border-success/30 flex items-center justify-between text-xs font-semibold text-success">
+                  <span className="flex items-center gap-2">
+                    <span className="material-symbols-outlined text-[18px]">check_circle</span>
+                    <span>Penumpang siap masuk ke garbarata / pesawat.</span>
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScanResult({ status: 'idle' })
+                      inputRef.current?.focus()
+                    }}
+                    className="text-ink hover:underline text-xs"
+                  >
+                    Scan Berikutnya &rarr;
+                  </button>
                 </div>
               </div>
             )}
 
-            {/* RESULT CARD B: ALREADY BOARDED */}
+            {/* ─── CASE B: WRONG FLIGHT / WRONG AIRLINE WARNING CARD ─── */}
+            {scanResult.status === 'wrong_flight' && (
+              <div className="bg-panel border-2 border-amber-500/50 rounded-ticket p-5 shadow-md flex flex-col gap-4 animate-fadeIn">
+                <div className="flex items-center justify-between pb-2 border-b border-line">
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 flex items-center justify-center">
+                      <span className="material-symbols-outlined text-[20px]">warning</span>
+                    </div>
+                    <div>
+                      <span className="font-bold text-sm text-amber-600 dark:text-amber-400 block">
+                        SALAH PENERBANGAN / GERBANG
+                      </span>
+                      <span className="text-[11px] text-subtle">
+                        Tiket valid, namun terdeteksi untuk penerbangan maskapai lain!
+                      </span>
+                    </div>
+                  </div>
+                  <span className="px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-600 dark:text-amber-400 text-[10px] uppercase font-bold tracking-wider">
+                    Wrong Gate
+                  </span>
+                </div>
+
+                {/* Detected Flight & Airline Details */}
+                <div className="bg-amber-500/10 border border-amber-500/30 rounded-control p-4 flex flex-col gap-3 text-xs">
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-amber-600 dark:text-amber-400 block">
+                        Maskapai &amp; Jadwal Asli Penumpang
+                      </span>
+                      <span className="text-base font-bold text-ink">
+                        {scanResult.data?.airline?.name || 'Maskapai Lain'} • {scanResult.data?.flight_number}
+                      </span>
+                    </div>
+                    <span className="text-xs font-mono font-bold bg-panel border border-amber-500/30 text-ink px-2 py-1 rounded">
+                      Kursi {scanResult.data?.seat_number || 'N/A'}
+                    </span>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 text-ink">
+                    <div>
+                      <span className="text-subtle text-[10px] uppercase block">Penumpang</span>
+                      <strong>{scanResult.data?.passenger_name || 'Nama Penumpang'}</strong>
+                    </div>
+                    <div>
+                      <span className="text-subtle text-[10px] uppercase block">Rute Asli</span>
+                      <strong>
+                        {scanResult.data?.origin?.code || 'CGK'} → {scanResult.data?.destination?.code || 'DPS'}
+                      </strong>
+                    </div>
+                  </div>
+
+                  <div className="p-2.5 bg-panel rounded border border-amber-500/20 text-ink text-xs leading-relaxed">
+                    <strong>Pemberitahuan Staf:</strong> Penumpang ini bukan untuk penerbangan gerbang ini ({activeFlight?.airline?.name} {activeFlight?.flight_number}). Arahkan penumpang ke gerbang keberangkatan {scanResult.data?.airline?.name || 'maskapainya'} ({scanResult.data?.flight_number}).
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setScanResult({ status: 'idle' })
+                      inputRef.current?.focus()
+                    }}
+                    className="flex-1 h-10 rounded-control bg-raised border border-line text-ink hover:bg-tint text-xs font-semibold transition-colors"
+                  >
+                    Scan Penumpang Lain
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (scanResult.data?.flight_schedule_id) {
+                        handleFlightSelectChange(String(scanResult.data.flight_schedule_id))
+                      }
+                    }}
+                    className="h-10 px-4 rounded-control bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold flex items-center justify-center transition-colors"
+                  >
+                    Buka Penerbangan Tersebut
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* ─── CASE C: ALREADY BOARDED CARD ─── */}
             {scanResult.status === 'already' && (
               <div className="bg-panel border-2 border-line rounded-ticket p-5 shadow-xs flex flex-col gap-3 animate-fadeIn">
                 <div className="flex items-center justify-between pb-2 border-b border-line">
@@ -591,7 +951,7 @@ export default function ScanBoarding() {
                         Sudah Berada di Pesawat
                       </span>
                       <span className="text-[11px] text-subtle">
-                        Boarding pass ini sudah discan dan tercatat masuk
+                        Boarding pass ini sudah discan dan tercatat naik sebelumnya
                       </span>
                     </div>
                   </div>
@@ -603,15 +963,17 @@ export default function ScanBoarding() {
                 <div className="p-4 rounded-control bg-raised border border-line flex flex-col gap-1.5 text-xs">
                   <div className="flex justify-between items-baseline">
                     <span className="font-bold text-sm text-ink">
-                      {scanResult.data?.passenger_name || 'Dewi Lestari'}
+                      {scanResult.data?.passenger_name}
                     </span>
                     <span className="font-bold text-brand-fg">
-                      Kursi {scanResult.data?.seat_number || '15A'}
+                      Kursi {scanResult.data?.seat_number}
                     </span>
                   </div>
-                  <p className="text-subtle">
-                    {scanResult.errorMessage ||
-                      'Boarding pass ini telah diverifikasi sebelumnya oleh staf Gate Crew.'}
+                  <div className="text-subtle">
+                    Penerbangan: <strong>{scanResult.data?.airline?.name} {scanResult.data?.flight_number}</strong>
+                  </div>
+                  <p className="text-subtle mt-1">
+                    {scanResult.errorMessage || 'Boarding pass ini telah diverifikasi dan masuk kabin.'}
                   </p>
                 </div>
 
@@ -630,7 +992,7 @@ export default function ScanBoarding() {
               </div>
             )}
 
-            {/* RESULT CARD C: INVALID / NOT FOUND */}
+            {/* ─── CASE D: INVALID / NOT FOUND CARD ─── */}
             {scanResult.status === 'invalid' && (
               <div className="bg-panel border-2 border-danger/40 rounded-ticket p-5 shadow-xs flex flex-col gap-3 animate-fadeIn">
                 <div className="flex items-center justify-between pb-2 border-b border-line">
@@ -643,18 +1005,18 @@ export default function ScanBoarding() {
                         Kode Tidak Cocok / Ditolak
                       </span>
                       <span className="text-[11px] text-subtle">
-                        Data boarding pass tidak ditemukan dalam manifest penerbangan ini
+                        Data boarding pass tidak ditemukan di sistem
                       </span>
                     </div>
                   </div>
                   <span className="px-2.5 py-0.5 rounded-full bg-danger/15 text-danger text-[10px] uppercase font-bold tracking-wider">
-                    Data Tidak Cocok
+                    Ditolak
                   </span>
                 </div>
 
                 <div className="p-3.5 rounded-control bg-raised border border-line text-xs text-subtle leading-relaxed">
                   {scanResult.errorMessage ||
-                    'Kode yang dipindai tidak terdaftar pada penerbangan KA 412. Periksa kembali boarding pass fisik penumpang atau arahkan ke layanan pelanggan.'}
+                    'Kode yang dipindai tidak terdaftar di sistem tiket. Pastikan penumpang telah melakukan check-in atau periksa kode fisik tiket.'}
                 </div>
 
                 <div className="flex gap-2">
@@ -669,7 +1031,7 @@ export default function ScanBoarding() {
                     Coba Lagi
                   </button>
                   <Link
-                    to={flightScheduleId ? `/staff/flights/${flightScheduleId}/manifest` : '/staff/flights/1/manifest'}
+                    to="/staff"
                     className="h-10 px-4 rounded-control bg-brand hover:bg-brand-hover text-white text-xs font-semibold flex items-center justify-center transition-colors"
                   >
                     Cari di Manifest
@@ -678,7 +1040,7 @@ export default function ScanBoarding() {
               </div>
             )}
 
-            {/* RESULT CARD D: IDLE / WAITING */}
+            {/* ─── CASE E: IDLE / WAITING STATE ─── */}
             {scanResult.status === 'idle' && (
               <div className="bg-panel border border-line rounded-ticket p-8 text-center flex flex-col items-center justify-center gap-2 shadow-xs">
                 <div className="w-12 h-12 rounded-full bg-tint text-brand-fg flex items-center justify-center">
@@ -686,7 +1048,9 @@ export default function ScanBoarding() {
                 </div>
                 <h3 className="font-bold text-sm text-ink">Siap Memindai Boarding Pass</h3>
                 <p className="text-xs text-subtle max-w-xs">
-                  Gunakan pemindai laser atau arahkan kamera ke barcode/QR penumpang untuk verifikasi instan.
+                  {selectedFlightId === 'all'
+                    ? 'Mode Universal: Scan tiket maskapai apa saja, sistem akan langsung mengenali maskapai & penerbangannya.'
+                    : `Mode Gerbang: Memverifikasi penumpang untuk penerbangan ${activeFlight?.airline?.name || ''} ${activeFlight?.flight_number || ''}.`}
                 </p>
               </div>
             )}
@@ -696,73 +1060,93 @@ export default function ScanBoarding() {
               <div className="flex items-center justify-between pb-3 border-b border-line">
                 <div className="flex items-center gap-2">
                   <span className="font-bold text-xs text-ink uppercase tracking-wider">
-                    5 Scan Terakhir di Gerbang 14
+                    Scan Terakhir Sesi Ini
                   </span>
                   <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-success/15 text-success">
-                    Live Sync
+                    Live DCS
                   </span>
                 </div>
-                <Link
-                  to={flightScheduleId ? `/staff/flights/${flightScheduleId}/manifest` : '/staff/flights/1/manifest'}
-                  className="text-xs text-brand-fg font-semibold hover:underline"
-                >
-                  Lihat Semua
-                </Link>
+                {selectedFlightId !== 'all' && (
+                  <Link
+                    to={`/staff/flights/${selectedFlightId}/manifest`}
+                    className="text-xs text-brand-fg font-semibold hover:underline"
+                  >
+                    Lihat Manifest
+                  </Link>
+                )}
               </div>
 
               <div className="flex flex-col divide-y divide-line text-xs">
-                {recentScans.map((item) => (
-                  <div
-                    key={item.id}
-                    className="py-3 flex items-center justify-between gap-3 hover:bg-tint/20 px-1 rounded transition-colors"
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <span className="w-7 h-7 rounded-full bg-success/15 text-success flex items-center justify-center shrink-0">
-                        <span className="material-symbols-outlined text-[15px]">check</span>
-                      </span>
-                      <div>
-                        <span className="font-bold text-ink block leading-tight">
-                          {item.name}
+                {recentScans.length > 0 ? (
+                  recentScans.map((item) => (
+                    <div
+                      key={item.id}
+                      className="py-3 flex items-center justify-between gap-3 hover:bg-tint/20 px-1 rounded transition-colors"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span className={`w-7 h-7 rounded-full flex items-center justify-center shrink-0 ${
+                          item.status === 'boarded'
+                            ? 'bg-success/15 text-success'
+                            : item.status === 'wrong_flight'
+                            ? 'bg-amber-500/15 text-amber-600'
+                            : 'bg-subtle/15 text-subtle'
+                        }`}>
+                          <span className="material-symbols-outlined text-[15px]">
+                            {item.status === 'boarded' ? 'check' : item.status === 'wrong_flight' ? 'priority_high' : 'info'}
+                          </span>
                         </span>
-                        <span className="text-[11px] text-subtle">
-                          Kursi <strong>{item.seat}</strong> • PNR: <span className="font-mono">{item.pnr}</span>
+                        <div>
+                          <span className="font-bold text-ink block leading-tight">
+                            {item.name}
+                          </span>
+                          <span className="text-[11px] text-subtle">
+                            {item.airlineName ? `${item.airlineName} ` : ''}{item.flightNumber} • Kursi {item.seat} • PNR: {item.pnr}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <span className="text-[10px] text-subtle block font-mono">
+                          {item.time}
+                        </span>
+                        <span className={`text-[10px] font-semibold uppercase ${
+                          item.status === 'boarded'
+                            ? 'text-success'
+                            : item.status === 'wrong_flight'
+                            ? 'text-amber-600'
+                            : 'text-subtle'
+                        }`}>
+                          {item.status === 'boarded' ? 'Naik' : item.status === 'wrong_flight' ? 'Salah Gate' : 'Sudah'}
                         </span>
                       </div>
                     </div>
-                    <div className="text-right tabular-nums">
-                      <span className="font-semibold text-ink block text-[11px]">{item.time}</span>
-                      <span className="text-[10px] font-bold text-success uppercase">
-                        Naik Pesawat
-                      </span>
-                    </div>
+                  ))
+                ) : (
+                  <div className="py-6 text-center text-xs text-subtle">
+                    Belum ada pemindaian pada sesi ini. Pindai kode boarding pass untuk memulai.
                   </div>
-                ))}
-              </div>
-
-              <div className="mt-3 pt-2.5 border-t border-line flex items-center justify-between text-[11px] text-subtle">
-                <span>Total 96 penumpang telah melewati gerbang.</span>
-                <span>
-                  Kecepatan rata-rata: <strong className="text-ink">3.2 detik / pax</strong>
-                </span>
+                )}
               </div>
             </div>
           </div>
         </div>
 
-        {/* ─── FLOATING TOAST FEEDBACK ─── */}
+        {/* Operational Toast Notification */}
         {toastMessage && (
-          <aside className="fixed bottom-6 right-6 z-50 bg-panel border border-line rounded-ticket p-4 shadow-xl flex items-center gap-3 max-w-md animate-fadeIn">
-            <div className="w-8 h-8 rounded-full bg-success/15 text-success flex items-center justify-center shrink-0">
-              <span className="material-symbols-outlined text-[18px]">check</span>
+          <aside
+            aria-label="Notifikasi sistem"
+            className="fixed bottom-6 right-6 z-50 flex items-center gap-3 bg-panel border border-line text-ink px-4 py-3 rounded-ticket shadow-2xl animate-fadeIn"
+          >
+            <div className="w-6 h-6 rounded-full bg-success text-white flex items-center justify-center shrink-0">
+              <span className="material-symbols-outlined text-[16px]">check</span>
             </div>
-            <div className="flex flex-col text-xs pr-2">
-              <span className="font-semibold text-ink leading-snug">{toastMessage}</span>
+            <div className="flex flex-col text-left">
+              <span className="text-xs font-bold text-ink">{toastMessage}</span>
+              <span className="text-[10px] text-subtle">Sinkronisasi status manifest real-time</span>
             </div>
             <button
               type="button"
               onClick={() => setToastMessage(null)}
-              className="text-subtle hover:text-ink p-1 rounded"
-              aria-label="Tutup notifikasi"
+              className="text-subtle hover:text-ink ml-2 p-1"
             >
               <span className="material-symbols-outlined text-[16px]">close</span>
             </button>
@@ -772,4 +1156,3 @@ export default function ScanBoarding() {
     </StaffLayout>
   )
 }
-

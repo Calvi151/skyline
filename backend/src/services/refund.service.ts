@@ -23,8 +23,11 @@ export interface CreateRefundParams {
 export class RefundService {
   /**
    * Mengajukan permintaan refund (Customer - POST /api/refunds)
-   * Mendukung refund reguler (RFD-01, RFD-02: batas H-6 jam) dan
-   * refund penerbangan dibatalkan (RFD-05: tanpa batas H-6 jam, jumlah penuh 100%, alasan otomatis).
+   * Logika Cerdas & Otomatis:
+   * 1. Kendala Penerbangan / Dibatalkan (RFD-05): Auto-Approved Instan 100% penuh tanpa potongan.
+   * 2. Aturan Cooling-Off 24 Jam: Jika booking <= 24 jam dan jadwal >= 24 jam sebelum terbang -> Auto-Approved Instan.
+   * 3. Di luar kondisi di atas: Reguler pending untuk ditinjau admin (minimal H-6 jam sebelum terbang).
+   * 4. Transaksi atomik database untuk mencegah race condition / double-refund.
    */
   async createRefundRequest(params: CreateRefundParams) {
     const { userId, userRole, bookingId, reason } = params
@@ -61,7 +64,7 @@ export class RefundService {
       throw {
         status: 400,
         code: 'REFUND_ALREADY_PENDING',
-        message: 'Pengajuan refund untuk pesanan ini sudah ada atau sedang diproses oleh admin',
+        message: 'Pengajuan refund untuk pesanan ini sudah ada atau sedang diproses',
       }
     }
 
@@ -100,16 +103,30 @@ export class RefundService {
     let refundAmount = Number(booking.totalPrice)
     let finalReason = reason?.trim() || ''
 
+    // Hitung usia pesanan sejak dibuat (cooling-off rule 24 jam)
+    const bookingCreatedAt = booking.createdAt ? new Date(booking.createdAt).getTime() : now.getTime()
+    const bookingAgeHours = (now.getTime() - bookingCreatedAt) / (1000 * 60 * 60)
+
+    let hoursRemaining = 999
+    if (firstSeg?.departureTime) {
+      const depTime = new Date(firstSeg.departureTime)
+      hoursRemaining = (depTime.getTime() - now.getTime()) / (1000 * 60 * 60)
+    }
+
+    let shouldAutoApprove = false
+
     if (isFlightCancelled) {
-      // RFD-05: Penerbangan dibatalkan maskapai
+      // Kondisi 1: Penerbangan dibatalkan maskapai (RFD-05)
       // Tanpa batas H-6 jam, jumlah penuh 100%, alasan otomatis jika kosong
+      // Auto-Approved instan oleh sistem
       kind = 'flight_cancelled'
       refundAmount = Number(booking.totalPrice)
       if (!finalReason) {
         finalReason = 'Penerbangan dibatalkan maskapai'
       }
+      shouldAutoApprove = true
     } else {
-      // RFD-01 & RFD-02: Refund normal atas permintaan pelanggan
+      // Kondisi 2: Refund normal atas permintaan pelanggan (RFD-01 & RFD-02)
       kind = 'customer'
 
       if (!finalReason || finalReason.length < 5) {
@@ -120,16 +137,19 @@ export class RefundService {
         }
       }
 
-      if (firstSeg?.departureTime) {
-        const depTime = new Date(firstSeg.departureTime)
-        const hoursRemaining = (depTime.getTime() - now.getTime()) / (1000 * 60 * 60)
+      if (hoursRemaining <= 0) {
+        throw {
+          status: 400,
+          code: 'FLIGHT_ALREADY_DEPARTED',
+          message: 'Pengajuan refund ditutup karena penerbangan sudah berangkat',
+        }
+      }
 
-        if (hoursRemaining < 6) {
-          throw {
-            status: 400,
-            code: 'REFUND_WINDOW_CLOSED',
-            message: 'Pengajuan refund ditutup. Refund hanya dapat diajukan minimal 6 jam sebelum jadwal keberangkatan',
-          }
+      if (hoursRemaining < 6) {
+        throw {
+          status: 400,
+          code: 'REFUND_WINDOW_CLOSED',
+          message: 'Pengajuan refund ditutup. Refund hanya dapat diajukan minimal 6 jam sebelum jadwal keberangkatan',
         }
       }
 
@@ -137,19 +157,98 @@ export class RefundService {
       const cancellationFee = Math.round(refundAmount * 0.2)
       const adminFee = 25000
       refundAmount = Math.max(0, refundAmount - cancellationFee - adminFee)
+
+      // Aturan Cooling-off 24 Jam:
+      // Jika pesanan dibuat belum lebih dari 24 jam yang lalu (1 hari)
+      // dan jadwal terbang masih aman (>= 24 jam sebelum jam terbang),
+      // refund langsung disetujui otomatis oleh sistem tanpa perlu verifikasi manual admin.
+      if (bookingAgeHours <= 24 && hoursRemaining >= 24) {
+        shouldAutoApprove = true
+      }
     }
 
-    const [newRefund] = await db
-      .insert(refunds)
-      .values({
-        bookingId: booking.id,
-        reason: finalReason,
-        refundAmount: refundAmount.toString(),
-        status: 'pending',
-        kind,
-        requestedAt: now,
-      })
-      .returning()
+    // Eksekusi atomik dalam transaksi database untuk menjamin integritas dan mencegah race condition
+    const newRefund = await db.transaction(async (tx) => {
+      // Re-verifikasi status pesanan di dalam transaksi
+      const [freshBooking] = await tx
+        .select()
+        .from(bookings)
+        .where(eq(bookings.id, booking.id))
+        .limit(1)
+
+      if (!freshBooking || freshBooking.status !== 'paid') {
+        throw {
+          status: 400,
+          code: 'INVALID_BOOKING_STATUS',
+          message: 'Status pesanan tidak valid untuk pengajuan refund',
+        }
+      }
+
+      const txRefunds = await tx
+        .select()
+        .from(refunds)
+        .where(eq(refunds.bookingId, booking.id))
+
+      const hasActive = txRefunds.some(
+        (r) => r.status === 'pending' || r.status === 'approved' || r.status === 'refunded',
+      )
+
+      if (hasActive) {
+        throw {
+          status: 400,
+          code: 'REFUND_ALREADY_PENDING',
+          message: 'Pengajuan refund untuk pesanan ini sudah ada atau sedang diproses',
+        }
+      }
+
+      const [inserted] = await tx
+        .insert(refunds)
+        .values({
+          bookingId: booking.id,
+          reason: finalReason,
+          refundAmount: refundAmount.toString(),
+          status: shouldAutoApprove ? 'approved' : 'pending',
+          kind,
+          requestedAt: now,
+          processedAt: shouldAutoApprove ? now : null,
+          processedBy: null,
+        })
+        .returning()
+
+      // Jika disetujui otomatis: langsung ubah status booking, lepaskan kursi, dan bersihkan check-in
+      if (shouldAutoApprove) {
+        // 1. Status booking menjadi 'refunded'
+        await tx
+          .update(bookings)
+          .set({ status: 'refunded' })
+          .where(eq(bookings.id, booking.id))
+
+        // 2. Lepaskan kursi penumpang
+        const paxRows = await tx
+          .select({ id: bookingPassengers.id, seatId: bookingPassengers.seatId })
+          .from(bookingPassengers)
+          .where(eq(bookingPassengers.bookingId, booking.id))
+
+        const seatIds = paxRows
+          .map((p) => p.seatId)
+          .filter((id): id is number => typeof id === 'number')
+
+        if (seatIds.length > 0) {
+          await tx
+            .update(seats)
+            .set({ isAvailable: true })
+            .where(inArray(seats.id, seatIds))
+        }
+
+        // 3. Batalkan check-in jika penumpang sudah pernah check-in
+        const paxIds = paxRows.map((p) => p.id)
+        if (paxIds.length > 0) {
+          await tx.delete(checkIns).where(inArray(checkIns.bookingPassengerId, paxIds))
+        }
+      }
+
+      return inserted
+    })
 
     return {
       id: newRefund.id,
@@ -159,6 +258,8 @@ export class RefundService {
       reason: newRefund.reason,
       refund_amount: Number(newRefund.refundAmount),
       requested_at: newRefund.requestedAt?.toISOString() || now.toISOString(),
+      processed_at: newRefund.processedAt?.toISOString() || null,
+      is_auto_approved: shouldAutoApprove,
     }
   }
 
@@ -238,6 +339,7 @@ export class RefundService {
         kind: r.kind,
         requested_at: r.requestedAt?.toISOString() || null,
         processed_at: r.processedAt?.toISOString() || null,
+        is_auto_approved: (r.status === 'approved' || r.status === 'refunded') && !r.processedBy,
       })
     }
 
@@ -247,6 +349,7 @@ export class RefundService {
   /**
    * Memproses persetujuan / penolakan refund oleh Admin (PUT /api/admin/refunds/:id)
    * Jika disetujui (approved / refunded), status booking menjadi 'refunded' dan kursi dilepaskan.
+   * Dilengkapi proteksi keamanan: refund yang sudah disetujui tidak bisa ditolak untuk mencegah inkonsistensi inventaris.
    */
   async processRefundByAdmin(params: {
     refundId: number
@@ -270,6 +373,37 @@ export class RefundService {
         status: 400,
         code: 'ALREADY_PROCESSED',
         message: 'Permintaan refund yang sudah ditolak tidak dapat diubah kembali',
+      }
+    }
+
+    if (refundItem.status === 'approved' || refundItem.status === 'refunded') {
+      if (status === 'rejected') {
+        throw {
+          status: 400,
+          code: 'ALREADY_APPROVED',
+          message: 'Permintaan refund yang sudah disetujui tidak dapat ditolak karena kursi telah dilepaskan',
+        }
+      }
+
+      // Idempotent: jika sudah disetujui atau auto-approved, pastikan processedBy tercatat jika belum ada
+      if (!refundItem.processedBy) {
+        await db
+          .update(refunds)
+          .set({ processedBy: adminUserId })
+          .where(eq(refunds.id, refundId))
+      }
+
+      return {
+        id: refundItem.id,
+        booking_id: refundItem.bookingId,
+        reason: refundItem.reason,
+        refund_amount: Number(refundItem.refundAmount),
+        status: refundItem.status,
+        kind: refundItem.kind,
+        processed_by: refundItem.processedBy || adminUserId,
+        requested_at: refundItem.requestedAt?.toISOString() || null,
+        processed_at: refundItem.processedAt?.toISOString() || null,
+        is_auto_approved: !refundItem.processedBy,
       }
     }
 

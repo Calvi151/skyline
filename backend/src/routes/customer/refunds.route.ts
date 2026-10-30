@@ -119,12 +119,18 @@ customerRefundsRoute.post('/', async (c) => {
       reason,
     })
 
+    let successMessage = 'Pengajuan refund berhasil dikirim dan sedang ditinjau.'
+    if (result.status === 'approved') {
+      if (result.kind === 'flight_cancelled') {
+        successMessage = 'Pengajuan refund penuh 100% disetujui otomatis karena penerbangan dibatalkan maskapai.'
+      } else {
+        successMessage = 'Pengajuan refund disetujui otomatis oleh sistem (Garansi Pembatalan 24 Jam). Dana segera diproses.'
+      }
+    }
+
     return c.json({
       error: false,
-      message:
-        result.kind === 'flight_cancelled'
-          ? 'Pengajuan refund penuh berhasil dikirim karena penerbangan dibatalkan.'
-          : 'Pengajuan refund berhasil dikirim dan sedang ditinjau.',
+      message: successMessage,
       data: result,
     })
   } catch (err: any) {

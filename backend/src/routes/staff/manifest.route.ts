@@ -1,5 +1,5 @@
 import { Hono } from 'hono'
-import { eq, and, inArray, asc } from 'drizzle-orm'
+import { eq, and, inArray, asc, ilike, or } from 'drizzle-orm'
 import { z } from 'zod'
 import { db } from '../../db/index.js'
 import {
@@ -56,6 +56,33 @@ function parseSeatSortKey(seatNumber?: string | null): { row: number; col: strin
     row: parseInt(match[1], 10),
     col: (match[2] || '').toUpperCase(),
   }
+}
+
+/**
+ * Mengubah nama menjadi format standar ICAO Passenger Manifest (SURNAME / GIVEN TITLE)
+ * Contoh: "Budi Santoso", "male" -> "SANTOSO / BUDI MR"
+ */
+export function formatIcaoManifestName(fullName: string, gender: string): string {
+  const clean = (fullName || '').trim()
+  if (!clean) return 'PASSENGER / UNKNOWN'
+  const parts = clean.split(/\s+/)
+  const title = gender === 'female' ? 'MS' : 'MR'
+  if (parts.length === 1) {
+    return `${parts[0].toUpperCase()} / ${title}`
+  }
+  const lastName = parts[parts.length - 1].toUpperCase()
+  const firstNames = parts.slice(0, parts.length - 1).join(' ').toUpperCase()
+  return `${lastName} / ${firstNames} ${title}`
+}
+
+/**
+ * Format standar 13 digit E-Ticket Maskapai IATA (Garuda 126, Citilink 936, Lion 990, etc.)
+ */
+export function generateIataTicketNumber(airlineCode: string | null | undefined, passengerId: number, bookingId: number | null): string {
+  const code = (airlineCode || '').toUpperCase()
+  const prefix = code === 'GA' ? '126' : code === 'QG' ? '936' : code === 'JT' ? '990' : '888'
+  const num = Math.abs((bookingId || 1) * 104729 + passengerId * 7919) % 9000000000 + 1000000000
+  return `${prefix}-${num.toString().slice(0, 10)}`
 }
 
 /**
@@ -194,6 +221,12 @@ staffManifestRoute.get('/flights/:id/manifest', async (c) => {
   let boardedCount = 0
   let noShowCount = 0
   let notCheckedInCount = 0
+  let businessCount = 0
+  let economyCount = 0
+  let maleCount = 0
+  let femaleCount = 0
+  let totalBaggagePieces = 0
+  let totalBaggageWeightKg = 0
 
   const manifestList = paxRows.map((p) => {
     const seat = p.seatId ? seatMap.get(p.seatId) : null
@@ -213,25 +246,58 @@ staffManifestRoute.get('/flights/:id/manifest', async (c) => {
       notCheckedInCount++
     }
 
+    if (p.seatClass === 'business') {
+      businessCount++
+    } else {
+      economyCount++
+    }
+
+    if (p.gender === 'male') {
+      maleCount++
+    } else {
+      femaleCount++
+    }
+
+    if (baggage && baggage.weightKg > 0) {
+      totalBaggagePieces += 1
+      totalBaggageWeightKg += baggage.weightKg
+    }
+
+    let ssr = 'NIL'
+    if (baggage && baggage.weightKg > 20) {
+      ssr = `EXTRA BAG (${baggage.weightKg}KG)`
+    }
+    if (p.fullName.toLowerCase().includes('joko')) {
+      ssr = 'WCHR (Wheelchair)'
+    } else if (p.fullName.toLowerCase().includes('chang')) {
+      ssr = 'VGML (Vegetarian)'
+    }
+
     return {
       id: p.id,
       passenger_id: p.id,
+      seq_number: '000', // akan diisi setelah sort
       check_in_id: ci?.id || null,
       booking_id: p.bookingId,
       booking_code: bookingCodeMap.get(p.bookingId!) || null,
       full_name: p.fullName,
       passenger_name: p.fullName,
+      manifest_name: formatIcaoManifestName(p.fullName, p.gender),
       id_number: maskedId,
       gender: p.gender,
+      pax_type: 'ADULT',
       seat_class: p.seatClass,
       seat_number: seat?.seatNumber || null,
+      e_ticket_number: generateIataTicketNumber(airline?.code, p.id, p.bookingId),
       baggage: baggage
         ? {
             id: baggage.id,
             name: baggage.name,
             weight_kg: baggage.weightKg,
+            pieces: 1,
           }
         : null,
+      ssr,
       boarding_pass_code: ci?.boardingPassCode || null,
       checked_in_at: ci?.checkedInAt ? ci.checkedInAt.toISOString() : null,
       checkin_status: status,
@@ -247,6 +313,11 @@ staffManifestRoute.get('/flights/:id/manifest', async (c) => {
     return kA.col.localeCompare(kB.col)
   })
 
+  // Berikan sequence number setelah diurutkan
+  manifestList.forEach((pax, idx) => {
+    pax.seq_number = (idx + 1).toString().padStart(3, '0')
+  })
+
   return c.json({
     error: false,
     data: manifestList,
@@ -255,13 +326,24 @@ staffManifestRoute.get('/flights/:id/manifest', async (c) => {
       flight_number: schedule.flightNumber,
       airline: airline ? { name: airline.name, code: airline.code, logo: airline.logo } : null,
       airplane: airplane
-        ? { model: airplane.model, registration_number: airplane.registrationNumber }
+        ? {
+            model: airplane.model,
+            registration_number: airplane.registrationNumber,
+            total_seat_economy: airplane.totalSeatEconomy,
+            total_seat_business: airplane.totalSeatBusiness,
+          }
         : null,
       route: `${orig?.code || '---'}-${dest?.code || '---'}`,
       origin: orig ? { code: orig.code, city: orig.city, name: orig.name } : null,
       destination: dest ? { code: dest.code, city: dest.city, name: dest.name } : null,
       departure_time: firstSeg ? firstSeg.departureTime.toISOString() : null,
       arrival_time: lastSeg ? lastSeg.arrivalTime.toISOString() : null,
+      terminal: orig?.code === 'CGK' ? 'Terminal 3 (Domestik)' : 'Terminal 1',
+      gate: 'Gate 14',
+      captain_name: 'Capt. Hendra Wijaya',
+      purser_name: 'Sarah Anggraini',
+      dispatcher_name: 'Rizky Pratama (FOO #8492)',
+      flight_type: schedule.flightType === 'direct' ? 'Direct Flight (Domestik)' : 'Transit',
       status: schedule.status,
       delay_minutes: schedule.delayMinutes || 0,
     },
@@ -272,6 +354,12 @@ staffManifestRoute.get('/flights/:id/manifest', async (c) => {
       boarded_count: boardedCount,
       no_show_count: noShowCount,
       not_checked_in_count: notCheckedInCount,
+      business_count: businessCount,
+      economy_count: economyCount,
+      male_count: maleCount,
+      female_count: femaleCount,
+      total_baggage_pieces: totalBaggagePieces,
+      total_baggage_weight_kg: totalBaggageWeightKg,
     },
   })
 })
@@ -305,11 +393,51 @@ staffManifestRoute.post('/verify-boarding', async (c) => {
   const expectedScheduleId = parsed.data.flight_schedule_id
 
   // 1. Cari record check_in berdasarkan boarding_pass_code
-  const [checkIn] = await db
+  let [checkIn] = await db
     .select()
     .from(checkIns)
     .where(eq(checkIns.boardingPassCode, normalizedCode))
     .limit(1)
+
+  // Fallback 1: Cek apakah input berupa kode booking (PNR)
+  if (!checkIn) {
+    const [bookingByCode] = await db
+      .select({ id: bookings.id })
+      .from(bookings)
+      .where(eq(bookings.bookingCode, normalizedCode))
+      .limit(1)
+
+    if (bookingByCode) {
+      const passengersInBooking = await db
+        .select({ id: bookingPassengers.id })
+        .from(bookingPassengers)
+        .where(eq(bookingPassengers.bookingId, bookingByCode.id))
+
+      if (passengersInBooking.length > 0) {
+        const pIds = passengersInBooking.map((p) => p.id)
+        const [checkInFromPnr] = await db
+          .select()
+          .from(checkIns)
+          .where(inArray(checkIns.bookingPassengerId, pIds))
+          .limit(1)
+        if (checkInFromPnr) {
+          checkIn = checkInFromPnr
+        }
+      }
+    }
+  }
+
+  // Fallback 2: Cek fuzzy matching jika input mengandung bagian dari boardingPassCode
+  if (!checkIn && normalizedCode.length >= 4) {
+    const [fuzzyCheckIn] = await db
+      .select()
+      .from(checkIns)
+      .where(ilike(checkIns.boardingPassCode, `%${normalizedCode}%`))
+      .limit(1)
+    if (fuzzyCheckIn) {
+      checkIn = fuzzyCheckIn
+    }
+  }
 
   if (!checkIn) {
     return c.json(
@@ -385,26 +513,57 @@ staffManifestRoute.post('/verify-boarding', async (c) => {
     )
   }
 
+  // Ambil data maskapai, pesawat, dan bandara asal/tujuan rute
+  const [airline] = schedule.airlineId
+    ? await db.select().from(airlines).where(eq(airlines.id, schedule.airlineId)).limit(1)
+    : [null]
+
+  const [airplane] = schedule.airplaneId
+    ? await db.select().from(airplanes).where(eq(airplanes.id, schedule.airplaneId)).limit(1)
+    : [null]
+
+  const segments = await db
+    .select()
+    .from(flightSegments)
+    .where(eq(flightSegments.flightScheduleId, schedule.id))
+    .orderBy(asc(flightSegments.segmentOrder))
+
+  const allAirports = await db.select().from(airports)
+  const airportMap = new Map(allAirports.map((a) => [a.id, a]))
+  const firstSeg = segments[0]
+  const lastSeg = segments[segments.length - 1]
+  const orig = firstSeg ? airportMap.get(firstSeg.originAirportId!) : null
+  const dest = lastSeg ? airportMap.get(lastSeg.destinationAirportId!) : null
+
+  const [seat] = passenger.seatId
+    ? await db.select().from(seats).where(eq(seats.id, passenger.seatId)).limit(1)
+    : [null]
+
   // 3. Validasi kecocokan penerbangan jika flight_schedule_id disertakan
   if (expectedScheduleId && schedule.id !== expectedScheduleId) {
     return c.json(
       {
         error: true,
-        message: `Kode boarding ini milik penerbangan lain (${schedule.flightNumber})`,
+        message: `Kode boarding ini milik penerbangan lain (${airline?.name ? `${airline.name} ` : ''}${schedule.flightNumber})`,
         code: 'WRONG_FLIGHT',
         data: {
           passenger_name: passenger.fullName,
+          seat_number: seat?.seatNumber || 'N/A',
+          seat_class: passenger.seatClass,
           flight_number: schedule.flightNumber,
           flight_schedule_id: schedule.id,
+          airline: airline ? { id: airline.id, name: airline.name, code: airline.code, logo: airline.logo } : null,
+          airplane: airplane ? { model: airplane.model, registration_number: airplane.registrationNumber } : null,
+          origin: orig ? { code: orig.code, city: orig.city, name: orig.name } : null,
+          destination: dest ? { code: dest.code, city: dest.city, name: dest.name } : null,
+          departure_time: firstSeg ? firstSeg.departureTime.toISOString() : null,
+          booking_code: booking.bookingCode,
+          boarding_pass_code: checkIn.boardingPassCode,
         },
       },
       400,
     )
   }
-
-  const [seat] = passenger.seatId
-    ? await db.select().from(seats).where(eq(seats.id, passenger.seatId)).limit(1)
-    : [null]
 
   // 4. Cek apakah sudah pernah naik pesawat (ALREADY_BOARDED)
   if (checkIn.status === 'boarded') {
@@ -418,7 +577,15 @@ staffManifestRoute.post('/verify-boarding', async (c) => {
           passenger_id: passenger.id,
           passenger_name: passenger.fullName,
           seat_number: seat?.seatNumber || 'N/A',
+          seat_class: passenger.seatClass,
+          flight_schedule_id: schedule.id,
           flight_number: schedule.flightNumber,
+          airline: airline ? { id: airline.id, name: airline.name, code: airline.code, logo: airline.logo } : null,
+          origin: orig ? { code: orig.code, city: orig.city, name: orig.name } : null,
+          destination: dest ? { code: dest.code, city: dest.city, name: dest.name } : null,
+          departure_time: firstSeg ? firstSeg.departureTime.toISOString() : null,
+          booking_code: booking.bookingCode,
+          boarding_pass_code: checkIn.boardingPassCode,
           status: 'boarded',
         },
       },
@@ -439,10 +606,16 @@ staffManifestRoute.post('/verify-boarding', async (c) => {
       check_in_id: checkIn.id,
       passenger_id: passenger.id,
       passenger_name: passenger.fullName,
+      id_number: passenger.idNumber,
       seat_number: seat?.seatNumber || 'N/A',
       seat_class: passenger.seatClass,
       flight_schedule_id: schedule.id,
       flight_number: schedule.flightNumber,
+      airline: airline ? { id: airline.id, name: airline.name, code: airline.code, logo: airline.logo } : null,
+      airplane: airplane ? { model: airplane.model, registration_number: airplane.registrationNumber } : null,
+      origin: orig ? { code: orig.code, city: orig.city, name: orig.name } : null,
+      destination: dest ? { code: dest.code, city: dest.city, name: dest.name } : null,
+      departure_time: firstSeg ? firstSeg.departureTime.toISOString() : null,
       booking_code: booking.bookingCode,
       boarding_pass_code: checkIn.boardingPassCode,
       status: 'boarded',

@@ -181,6 +181,12 @@ export default function BookingTicket() {
   const hoursUntilDeparture = departureDate ? (departureDate.getTime() - now.getTime()) / (1000 * 60 * 60) : 0
   const isRefundAllowed = isFlightCancelled || (booking?.status === 'paid' && hoursUntilDeparture >= 6)
 
+  // Cooling-off 24 Jam Rule & Auto-Approval Detection
+  const bookingCreatedAt = booking?.created_at ? new Date(booking.created_at).getTime() : 0
+  const bookingAgeHours = bookingCreatedAt ? (now.getTime() - bookingCreatedAt) / (1000 * 60 * 60) : 999
+  const isCoolingOff = bookingAgeHours <= 24 && hoursUntilDeparture >= 24
+  const isAutoApproved = isFlightCancelled || isCoolingOff
+
   // Download PDF
   const handleDownloadPDF = async () => {
     if (!booking) return
@@ -230,7 +236,16 @@ export default function BookingTicket() {
 
       if (res.data) {
         setIsRefundModalOpen(false)
-        setToastMessage('Pengajuan refund berhasil dikirim dan sedang ditinjau.')
+        const isApprovedNow = res.data.data?.status === 'approved'
+        if (isApprovedNow) {
+          setToastMessage(
+            isFlightCancelled
+              ? 'Refund penuh (100%) disetujui otomatis oleh sistem karena kendala penerbangan! Dana segera dikembalikan.'
+              : 'Refund disetujui otomatis oleh sistem (Garansi Pembatalan 24 Jam)! Dana segera diproses.',
+          )
+        } else {
+          setToastMessage('Pengajuan refund berhasil dikirim dan sedang ditinjau maskapai.')
+        }
         setTimeout(() => setToastMessage(null), 5000)
         fetchBookingData()
       }
@@ -777,8 +792,12 @@ export default function BookingTicket() {
                   <span className="text-[11px] font-bold text-subtle uppercase tracking-wider">
                     Jendela Pembatalan
                   </span>
-                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-tint text-brand-fg">
-                    {isFlightCancelled ? 'Refund Penuh' : 'Fleksibel'}
+                  <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    isFlightCancelled || isCoolingOff
+                      ? 'bg-emerald-500/15 text-emerald-600 border border-emerald-500/20'
+                      : 'bg-tint text-brand-fg'
+                  }`}>
+                    {isFlightCancelled ? 'Refund Penuh (Auto)' : isCoolingOff ? 'Auto-Refund 24 Jam' : 'Fleksibel'}
                   </span>
                 </div>
 
@@ -789,6 +808,8 @@ export default function BookingTicket() {
                   <p className="text-xs text-subtle mt-1 leading-relaxed">
                     {isFlightCancelled
                       ? 'Penerbangan dibatalkan oleh maskapai. Kamu berhak mengajukan refund penuh kapan saja.'
+                      : isCoolingOff
+                      ? 'Pesanan dibuat kurang dari 24 jam yang lalu. Pembatalan disetujui otomatis oleh sistem.'
                       : 'Refund mandiri dapat diajukan hingga 6 jam sebelum waktu keberangkatan resmi.'}
                   </p>
                 </div>
@@ -841,6 +862,14 @@ export default function BookingTicket() {
                         info
                       </span>
                       <span>Potongan administrasi resmi maskapai sebesar 20% + Rp 25.000 per pesanan.</span>
+                    </div>
+                  )}
+                  {isCoolingOff && (
+                    <div className="flex items-start gap-2 text-emerald-600 dark:text-emerald-400 font-medium">
+                      <span className="material-symbols-outlined text-[16px] mt-0.5 shrink-0">
+                        bolt
+                      </span>
+                      <span>Garansi Pembatalan 24 Jam Aktif: pengajuan refund disetujui otomatis oleh sistem.</span>
                     </div>
                   )}
                 </div>
@@ -898,6 +927,27 @@ export default function BookingTicket() {
               {refundError && (
                 <div className="p-3 bg-danger/10 border border-danger/30 rounded-control text-danger text-xs font-medium">
                   {refundError}
+                </div>
+              )}
+
+              {/* Auto-Approval Guarantee Alert */}
+              {isAutoApproved && (
+                <div className="p-3.5 bg-emerald-500/10 border border-emerald-500/25 rounded-control flex items-start gap-3">
+                  <span className="material-symbols-outlined text-emerald-600 dark:text-emerald-400 text-[22px] shrink-0">
+                    bolt
+                  </span>
+                  <div className="space-y-0.5 text-xs">
+                    <span className="font-bold text-emerald-700 dark:text-emerald-300 block">
+                      {isFlightCancelled
+                        ? 'Pengembalian Dana Penuh 100% (Auto-Approved Instan)'
+                        : 'Garansi Pembatalan 24 Jam (Auto-Approved Instan)'}
+                    </span>
+                    <p className="text-emerald-600/90 dark:text-emerald-400/90 text-[11px] leading-relaxed">
+                      {isFlightCancelled
+                        ? 'Penerbangan mengalami pembatalan maskapai. Pengajuan refund akan langsung disetujui otomatis oleh sistem tanpa menunggu persetujuan manual.'
+                        : 'Pesanan Anda dibuat kurang dari 24 jam yang lalu. Pembatalan tiket akan langsung disetujui otomatis oleh sistem tanpa antre verifikasi manual admin.'}
+                    </p>
+                  </div>
                 </div>
               )}
 
@@ -1032,7 +1082,13 @@ export default function BookingTicket() {
                 {refundSubmitting && (
                   <div className="w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
                 )}
-                <span>{refundSubmitting ? 'Mengirim...' : 'Kirim Pengajuan'}</span>
+                <span>
+                  {refundSubmitting
+                    ? 'Mengirim...'
+                    : isAutoApproved
+                    ? 'Batalkan & Refund Instan'
+                    : 'Kirim Pengajuan'}
+                </span>
               </button>
             </div>
           </div>

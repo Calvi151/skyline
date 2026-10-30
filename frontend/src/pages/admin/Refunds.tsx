@@ -15,6 +15,7 @@ interface AdminRefundItem {
   requested_at: string | null
   processed_at: string | null
   departure_time: string | null
+  is_auto_approved?: boolean
 }
 
 export default function RefundsPage() {
@@ -345,9 +346,16 @@ export default function RefundsPage() {
                                 Menunggu
                               </span>
                             ) : isApproved ? (
-                              <span className="px-2 py-0.5 rounded-full font-semibold text-[10px] uppercase bg-success/15 text-success">
-                                Disetujui
-                              </span>
+                              <div className="flex flex-col items-center gap-0.5">
+                                <span className="px-2 py-0.5 rounded-full font-semibold text-[10px] uppercase bg-success/15 text-success">
+                                  Disetujui
+                                </span>
+                                {refund.is_auto_approved && (
+                                  <span className="px-1.5 py-0.2 rounded text-[9px] font-bold bg-emerald-500/10 text-emerald-600 border border-emerald-500/20">
+                                    ⚡ Auto
+                                  </span>
+                                )}
+                              </div>
                             ) : (
                               <span className="px-2 py-0.5 rounded-full font-semibold text-[10px] uppercase bg-danger/15 text-danger">
                                 Ditolak
@@ -564,9 +572,17 @@ export default function RefundsPage() {
                     </button>
                   </div>
                 ) : (
-                  <div className="p-3 rounded-control bg-raised border border-line text-xs text-subtle text-center">
-                    Permohonan ini telah selesai diproses (Status:{' '}
-                    <strong className="text-ink uppercase">{selectedRefund.status}</strong>).
+                  <div className="p-3.5 rounded-control bg-raised border border-line text-xs text-subtle text-center space-y-1">
+                    <div>
+                      Permohonan ini telah selesai diproses (Status:{' '}
+                      <strong className="text-ink uppercase">{selectedRefund.status}</strong>).
+                    </div>
+                    {selectedRefund.is_auto_approved && (
+                      <div className="inline-flex items-center gap-1 text-[11px] font-semibold text-emerald-600 bg-emerald-500/10 px-2.5 py-0.5 rounded-full border border-emerald-500/20">
+                        <span className="material-symbols-outlined text-[14px]">bolt</span>
+                        <span>Auto-Approved oleh Sistem (Cooling-off / Disrupsi)</span>
+                      </div>
+                    )}
                   </div>
                 )}
               </>

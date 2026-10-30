@@ -121,6 +121,7 @@ refundsRoute.get('/', async (c) => {
       requested_at: r.requestedAt?.toISOString() || null,
       processed_at: r.processedAt?.toISOString() || null,
       departure_time: departureTime,
+      is_auto_approved: (r.status === 'approved' || r.status === 'refunded') && !r.processedBy,
     })
   }
 
