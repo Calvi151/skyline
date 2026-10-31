@@ -942,24 +942,24 @@ export default function CheckIn() {
                       </div>
                     </div>
 
-                    {/* 3. TABULAR GRID OF 6 PASSENGER FLIGHT PARAMETERS (Figma Layout + Dribbble Callout Pills) */}
+                    {/* 3. TABULAR GRID OF 6 PASSENGER FLIGHT PARAMETERS (3 Columns x 2 Rows Spacious Grid) */}
                     <div className="px-6 md:px-8 pb-6 md:pb-7 pt-5 border-t border-line bg-panel/45">
-                      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3.5 text-left items-stretch">
+                      <div className="grid grid-cols-2 sm:grid-cols-3 gap-3.5 text-left items-stretch">
                         {/* Col 1: Passenger Name */}
-                        <div className="flex flex-col justify-between p-2.5 rounded-control bg-raised/70 border border-line/60">
+                        <div className="flex flex-col justify-between p-3 rounded-control bg-raised/70 border border-line/70 min-h-[68px]">
                           <span className="text-[10px] uppercase font-bold text-subtle tracking-wider leading-tight">
                             Nama Penumpang
                           </span>
                           <div className="mt-1">
-                            <span className="text-sm font-bold text-ink block truncate">
+                            <span className="text-sm font-bold text-ink block leading-snug break-words">
                               {activePassenger?.full_name || 'Rina Wulandari'}
                             </span>
-                            <span className="text-[11px] text-subtle">Dewasa (ADT)</span>
+                            <span className="text-[11px] text-subtle block mt-0.5">Dewasa (ADT)</span>
                           </div>
                         </div>
 
                         {/* Col 2: Kursi (Seat) - Highlighted Orange/Coral */}
-                        <div className="flex flex-col justify-between p-2.5 rounded-control bg-signal/[0.06] border border-signal/30">
+                        <div className="flex flex-col justify-between p-3 rounded-control bg-signal/[0.07] border border-signal/35 min-h-[68px]">
                           <span className="text-[10px] uppercase font-bold text-subtle tracking-wider leading-tight">
                             Kursi (Seat)
                           </span>
@@ -971,14 +971,14 @@ export default function CheckIn() {
                                 activePassenger?.seat_number ||
                                 '14A'}
                             </span>
-                            <span className="text-[11px] text-subtle block mt-1">
+                            <span className="text-[11px] text-subtle block mt-1 leading-tight">
                               Jendela • Depan Sayap
                             </span>
                           </div>
                         </div>
 
                         {/* Col 3: Pintu Masuk (Gate) */}
-                        <div className="flex flex-col justify-between p-2.5 rounded-control bg-tint/40 border border-brand-fg/20">
+                        <div className="flex flex-col justify-between p-3 rounded-control bg-raised/70 border border-line/70 min-h-[68px]">
                           <span className="text-[10px] uppercase font-bold text-subtle tracking-wider leading-tight">
                             Pintu Masuk (Gate)
                           </span>
@@ -988,12 +988,12 @@ export default function CheckIn() {
                                 ? `Gate ${activeBoardingPass.gate.replace(/^Gate\s*/i, '')}`
                                 : 'Menunggu FIDS'}
                             </span>
-                            <span className="text-[11px] text-subtle block">Layar Terminal 3</span>
+                            <span className="text-[11px] text-subtle block mt-0.5">Layar Terminal 3</span>
                           </div>
                         </div>
 
                         {/* Col 4: Waktu Boarding */}
-                        <div className="flex flex-col justify-between p-2.5 rounded-control bg-raised/70 border border-line/60">
+                        <div className="flex flex-col justify-between p-3 rounded-control bg-raised/70 border border-line/70 min-h-[68px]">
                           <span className="text-[10px] uppercase font-bold text-subtle tracking-wider leading-tight">
                             Waktu Boarding
                           </span>
@@ -1001,31 +1001,31 @@ export default function CheckIn() {
                             <span className="text-sm font-extrabold text-ink block tabular-nums">
                               {boardingTimeDisplay.timeStr}
                             </span>
-                            <span className="text-[11px] font-semibold text-danger block">
+                            <span className="text-[11px] font-semibold text-danger block mt-0.5">
                               30m sblm terbang
                             </span>
                           </div>
                         </div>
 
                         {/* Col 5: Zona Antrean */}
-                        <div className="flex flex-col justify-between p-2.5 rounded-control bg-raised/70 border border-line/60">
+                        <div className="flex flex-col justify-between p-3 rounded-control bg-raised/70 border border-line/70 min-h-[68px]">
                           <span className="text-[10px] uppercase font-bold text-subtle tracking-wider leading-tight">
                             Zona Antrean
                           </span>
                           <div className="mt-1">
                             <span className="text-sm font-extrabold text-ink block">ZONA 2</span>
-                            <span className="text-[11px] text-subtle block">Prioritas Reguler</span>
+                            <span className="text-[11px] text-subtle block mt-0.5">Prioritas Reguler</span>
                           </div>
                         </div>
 
                         {/* Col 6: Jatah Bagasi */}
-                        <div className="flex flex-col justify-between p-2.5 rounded-control bg-raised/70 border border-line/60">
+                        <div className="flex flex-col justify-between p-3 rounded-control bg-raised/70 border border-line/70 min-h-[68px]">
                           <span className="text-[10px] uppercase font-bold text-subtle tracking-wider leading-tight">
                             Jatah Bagasi
                           </span>
                           <div className="mt-1">
                             <span className="text-sm font-extrabold text-ink block">Kabin 7 kg</span>
-                            <span className="text-[11px] text-subtle block">Bagasi 20 kg</span>
+                            <span className="text-[11px] text-subtle block mt-0.5">Bagasi 20 kg</span>
                           </div>
                         </div>
                       </div>

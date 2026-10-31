@@ -29,6 +29,8 @@ import Checkout from '../pages/customer/Checkout'
 import PaymentResult from '../pages/customer/PaymentResult'
 import MyBookings from '../pages/customer/MyBookings'
 import BookingTicket from '../pages/customer/BookingTicket'
+import CustomerProfile from '../pages/customer/Profile'
+import AdminProfile from '../pages/admin/Profile'
 
 /** Redirect kalau sudah login dan coba akses /login atau /register */
 function GuestOnly({ children }: { children: React.ReactNode }) {
@@ -136,6 +138,14 @@ export default function AppRouter() {
             </ProtectedRoute>
           }
         />
+        <Route
+          path="/profile"
+          element={
+            <ProtectedRoute>
+              <CustomerProfile />
+            </ProtectedRoute>
+          }
+        />
 
         {/* Admin - Master Data (Phase 2 & B14 Stitch Design) */}
         <Route
@@ -219,6 +229,14 @@ export default function AppRouter() {
           element={
             <RoleRoute allowedRoles={['admin']}>
               <UsersPage />
+            </RoleRoute>
+          }
+        />
+        <Route
+          path="/admin/profile"
+          element={
+            <RoleRoute allowedRoles={['admin']}>
+              <AdminProfile />
             </RoleRoute>
           }
         />

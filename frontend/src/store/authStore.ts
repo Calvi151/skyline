@@ -5,8 +5,16 @@ export interface AuthUser {
   id: number
   name: string
   email: string
+  phone?: string | null
   role: 'admin' | 'staff' | 'customer'
   email_verified: boolean
+  has_password?: boolean
+  has_google?: boolean
+  created_at?: string
+  stats?: {
+    total_bookings: number
+    paid_bookings: number
+  }
 }
 
 interface AuthState {

@@ -61,6 +61,7 @@ dashboardRoute.get('/', async (c) => {
     .select({
       day: sql<string>`to_char(${bookings.createdAt}, 'YYYY-MM-DD')`,
       count: sql<number>`count(*)`,
+      revenue: sql<number>`coalesce(sum(case when ${bookings.status} = 'paid' then ${bookings.totalPrice} else 0 end), 0)`,
     })
     .from(bookings)
     .where(gte(bookings.createdAt, rangeStartDate))
@@ -68,11 +69,15 @@ dashboardRoute.get('/', async (c) => {
     .orderBy(sql`to_char(${bookings.createdAt}, 'YYYY-MM-DD')`)
 
   const countMap = new Map<string, number>()
+  const revenueMap = new Map<string, number>()
   for (const row of dailyCounts) {
-    if (row.day) countMap.set(row.day, Number(row.count))
+    if (row.day) {
+      countMap.set(row.day, Number(row.count))
+      revenueMap.set(row.day, Number(row.revenue))
+    }
   }
 
-  const bookingsByDay: Array<{ date: string; count: number }> = []
+  const bookingsByDay: Array<{ date: string; count: number; revenue: number }> = []
   for (let i = 0; i < daysRange; i++) {
     const cur = new Date(rangeStartDate)
     cur.setDate(cur.getDate() + i)
@@ -80,7 +85,20 @@ dashboardRoute.get('/', async (c) => {
     bookingsByDay.push({
       date: dateStr,
       count: countMap.get(dateStr) || 0,
+      revenue: revenueMap.get(dateStr) || 0,
     })
+  }
+
+  // 2b. Booking status breakdown within range
+  const statusRows = await db
+    .select({ status: bookings.status, count: sql<number>`count(*)` })
+    .from(bookings)
+    .where(gte(bookings.createdAt, rangeStartDate))
+    .groupBy(bookings.status)
+
+  const statusBreakdown: Record<string, number> = { pending: 0, paid: 0, cancelled: 0, refunded: 0 }
+  for (const r of statusRows) {
+    if (r.status) statusBreakdown[r.status] = Number(r.count)
   }
 
   // 3. Upcoming departures (next flights)
@@ -216,6 +234,7 @@ dashboardRoute.get('/', async (c) => {
     data: {
       today: todayStats,
       bookings_by_day: bookingsByDay,
+      status_breakdown: statusBreakdown,
       upcoming_departures: upcomingDepartures.slice(0, 5),
       pending_refunds: pendingRefunds.slice(0, 5),
     },

@@ -30,6 +30,7 @@ export default function AdminLayout({ children, currentSection }: AdminLayoutPro
     { label: 'Bagasi', path: '/admin/baggage-options', icon: 'luggage' },
     { label: 'Refund', path: '/admin/refunds', icon: 'currency_exchange' },
     { label: 'Pengguna', path: '/admin/users', icon: 'group' },
+    { label: 'Profil Saya', path: '/admin/profile', icon: 'account_circle' },
   ]
 
   const adminName = user?.name || 'Budi Santoso'
@@ -125,7 +126,11 @@ export default function AdminLayout({ children, currentSection }: AdminLayoutPro
             <div className="h-5 w-px bg-line" />
 
             {/* Admin Avatar & Label */}
-            <div className="flex items-center gap-2.5 pl-1 select-none">
+            <Link
+              to="/admin/profile"
+              className="flex items-center gap-2.5 pl-1 select-none hover:opacity-85 transition-opacity"
+              title="Pengaturan Profil Administrator"
+            >
               <div className="w-8 h-8 rounded-full bg-brand text-white flex items-center justify-center font-bold text-xs shadow-sm">
                 {adminName.charAt(0).toUpperCase()}
               </div>
@@ -133,7 +138,7 @@ export default function AdminLayout({ children, currentSection }: AdminLayoutPro
                 <span className="text-xs font-bold text-ink">{adminName}</span>
                 <span className="text-[10px] text-subtle font-medium">Administrator</span>
               </div>
-            </div>
+            </Link>
 
             <div className="h-5 w-px bg-line" />
 

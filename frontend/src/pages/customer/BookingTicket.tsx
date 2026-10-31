@@ -524,32 +524,59 @@ export default function BookingTicket() {
                     <div className="flex flex-col md:flex-row relative">
                       {/* Ticket Body (Left Section: Main Flight Ticket) */}
                       <div className="flex-1 flex flex-col justify-between relative overflow-hidden">
-                        {/* 1. AIRLINE STRIP & AIRCRAFT (Clean Figma Header with Airline Logo) */}
-                        <div className="px-5 sm:px-7 py-3.5 sm:py-4 border-b border-line flex items-center justify-between gap-3 bg-panel/30">
-                          <div className="flex items-center gap-3">
-                            <AirlineLogo
-                              code={flight?.airline?.code}
-                              name={flight?.airline?.name}
-                              logo={flight?.airline?.logo}
-                              size="md"
-                            />
-                            <div>
-                              <h2 className="font-bold text-ink text-sm sm:text-base leading-tight">
-                                {flight?.airline?.name || 'Kenari Air'}
-                              </h2>
-                              <p className="text-xs text-subtle mt-0.5">
-                                Penerbangan {flight?.flight_number || 'KA 412'} • {flight?.airplane?.model || 'Boeing 737-800'}
-                              </p>
-                            </div>
-                          </div>
+                        {/* 1. DESTINATION CITY PANORAMA BANNER (Header Strip with Airline Identity) */}
+                        <div className="relative h-28 sm:h-32 w-full overflow-hidden border-b border-line">
+                          {/* Destination City Background Image */}
+                          <img
+                            src={destVisual.imageUrl}
+                            alt={`Destinasi ${lastSeg?.destination?.city || destVisual.city}`}
+                            className="absolute inset-0 w-full h-full object-cover object-center scale-[1.02]"
+                          />
+                          {/* Atmospheric Editorial Gradient Overlay */}
+                          <div className="absolute inset-0 bg-gradient-to-r from-[#0B2545]/90 via-[#0B2545]/70 to-[#0B2545]/45" />
+                          <div className="absolute inset-x-0 bottom-0 h-10 bg-gradient-to-t from-black/40 to-transparent" />
 
-                          <div className="text-right shrink-0">
-                            <span className="px-2.5 py-0.5 rounded-full bg-tint text-brand-fg text-[10px] font-extrabold uppercase tracking-wider inline-block">
-                              {activePax.seat_class === 'business' ? 'KELAS BISNIS' : 'KELAS EKONOMI'}
-                            </span>
-                            <span className="text-xs font-bold text-subtle block mt-1 tabular-nums">
-                              {formatDate(firstSeg?.departure_time)}
-                            </span>
+                          {/* Airline Strip & Destination Info inside Banner */}
+                          <div className="relative z-10 h-full px-5 sm:px-7 py-3.5 flex items-center justify-between gap-3 text-white">
+                            {/* Left: Airline Identity & Aircraft */}
+                            <div className="flex items-center gap-3">
+                              <AirlineLogo
+                                code={flight?.airline?.code}
+                                name={flight?.airline?.name}
+                                logo={flight?.airline?.logo}
+                                size="md"
+                              />
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h2 className="font-bold text-white text-base sm:text-lg leading-tight">
+                                    {flight?.airline?.name || 'Kenari Air'}
+                                  </h2>
+                                  <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/15 backdrop-blur-xs border border-white/20 text-[10px] font-semibold text-sky-100">
+                                    <span className="material-symbols-outlined text-[11px]">location_on</span>
+                                    <span>{lastSeg?.destination?.city || destVisual.city}</span>
+                                  </span>
+                                </div>
+                                <p className="text-xs text-sky-100/90 mt-0.5">
+                                  Penerbangan {flight?.flight_number || 'KA 412'} • {flight?.airplane?.model || 'Boeing 737-800'}
+                                </p>
+                                <span className="text-[10px] text-sky-200/80 hidden sm:block mt-0.5">
+                                  {destVisual.landmarkName} • {destVisual.tagline}
+                                </span>
+                              </div>
+                            </div>
+
+                            {/* Right: Cabin Class Badge & Departure Date */}
+                            <div className="text-right shrink-0 flex flex-col items-end">
+                              <span className="px-2.5 py-0.5 rounded-full bg-white text-[#1D5BD6] text-[10px] font-extrabold uppercase tracking-wider inline-block shadow-2xs">
+                                {activePax.seat_class === 'business' ? 'KELAS BISNIS' : 'KELAS EKONOMI'}
+                              </span>
+                              <span className="text-xs font-bold text-white block mt-1 tabular-nums drop-shadow-2xs">
+                                {formatDate(firstSeg?.departure_time)}
+                              </span>
+                              <span className="text-[10px] text-sky-100/85 font-mono">
+                                PNR: {booking.booking_code}
+                              </span>
+                            </div>
                           </div>
                         </div>
 
@@ -626,84 +653,96 @@ export default function BookingTicket() {
                           </div>
                         </div>
 
-                        {/* 3. TABULAR GRID OF PASSENGER DETAILS (6 Columns matching Figma) */}
-                        <div className="px-5 sm:px-7 pb-5 pt-3.5 border-t border-line bg-panel/30 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2.5 text-left">
+                        {/* 3. TABULAR GRID OF PASSENGER DETAILS (3 Columns x 2 Rows Spacious Grid) */}
+                        <div className="px-5 sm:px-7 pb-5 pt-3.5 border-t border-line bg-panel/30 grid grid-cols-2 sm:grid-cols-3 gap-2.5 sm:gap-3 text-left">
                           {/* Col 1: Nama Penumpang */}
-                          <div className="flex flex-col p-2 rounded-control bg-raised border border-line/60">
-                            <span className="text-[9px] font-bold uppercase text-subtle tracking-wider">
+                          <div className="flex flex-col justify-between p-2.5 sm:p-3 rounded-control bg-raised border border-line/70 min-h-[64px]">
+                            <span className="text-[10px] font-bold uppercase text-subtle tracking-wider leading-tight">
                               Nama Penumpang
                             </span>
-                            <span className="text-xs font-bold text-ink truncate mt-0.5">
-                              {activePax.full_name}
-                            </span>
-                            <span className="text-[10px] text-subtle truncate">
-                              Dewasa (ADT)
-                            </span>
+                            <div className="mt-1">
+                              <span className="text-xs sm:text-sm font-bold text-ink block leading-snug break-words">
+                                {activePax.full_name}
+                              </span>
+                              <span className="text-[11px] text-subtle block mt-0.5">
+                                Dewasa (ADT)
+                              </span>
+                            </div>
                           </div>
 
-                          {/* Col 2: Kursi (Seat) */}
-                          <div className="flex flex-col p-2 rounded-control bg-signal/[0.06] border border-signal/30">
-                            <span className="text-[9px] font-bold uppercase text-subtle tracking-wider">
+                          {/* Col 2: Kursi (Seat) - Highlighted Orange */}
+                          <div className="flex flex-col justify-between p-2.5 sm:p-3 rounded-control bg-signal/[0.07] border border-signal/35 min-h-[64px]">
+                            <span className="text-[10px] font-bold uppercase text-subtle tracking-wider leading-tight">
                               Kursi (Seat)
                             </span>
-                            <span className="text-base font-black text-signal leading-tight mt-0.5 tabular-nums">
-                              {activePax.seat_number || 'Check-in'}
-                            </span>
-                            <span className="text-[10px] text-subtle truncate">
-                              {activePax.seat_number ? 'Jendela • Depan' : 'Saat check-in'}
-                            </span>
+                            <div className="mt-0.5">
+                              <span className="text-xl sm:text-2xl font-black text-signal leading-tight block tabular-nums">
+                                {activePax.seat_number || 'Check-in'}
+                              </span>
+                              <span className="text-[11px] text-subtle block mt-0.5 leading-tight">
+                                {activePax.seat_number ? 'Jendela • Depan Sayap' : 'Pilih saat check-in'}
+                              </span>
+                            </div>
                           </div>
 
                           {/* Col 3: Pintu Masuk (Gate) */}
-                          <div className="flex flex-col p-2 rounded-control bg-raised border border-line/60">
-                            <span className="text-[9px] font-bold uppercase text-subtle tracking-wider">
+                          <div className="flex flex-col justify-between p-2.5 sm:p-3 rounded-control bg-raised border border-line/70 min-h-[64px]">
+                            <span className="text-[10px] font-bold uppercase text-subtle tracking-wider leading-tight">
                               Pintu (Gate)
                             </span>
-                            <span className="text-xs font-extrabold text-ink mt-0.5">
-                              Menunggu RDS
-                            </span>
-                            <span className="text-[10px] text-subtle truncate">
-                              Layar Terminal 3
-                            </span>
+                            <div className="mt-1">
+                              <span className="text-xs sm:text-sm font-bold text-ink block">
+                                Menunggu RDS
+                              </span>
+                              <span className="text-[11px] text-subtle block mt-0.5">
+                                Layar Terminal 3
+                              </span>
+                            </div>
                           </div>
 
                           {/* Col 4: Waktu Boarding */}
-                          <div className="flex flex-col p-2 rounded-control bg-raised border border-line/60">
-                            <span className="text-[9px] font-bold uppercase text-subtle tracking-wider">
+                          <div className="flex flex-col justify-between p-2.5 sm:p-3 rounded-control bg-raised border border-line/70 min-h-[64px]">
+                            <span className="text-[10px] font-bold uppercase text-subtle tracking-wider leading-tight">
                               Waktu Boarding
                             </span>
-                            <span className="text-xs font-extrabold text-brand-fg mt-0.5 tabular-nums">
-                              {boardingTimeStr} WIB
-                            </span>
-                            <span className="text-[10px] text-subtle truncate">
-                              30m sblm terbang
-                            </span>
+                            <div className="mt-1">
+                              <span className="text-xs sm:text-sm font-extrabold text-brand-fg block tabular-nums">
+                                {boardingTimeStr} WIB
+                              </span>
+                              <span className="text-[11px] text-subtle block mt-0.5">
+                                30m sblm terbang
+                              </span>
+                            </div>
                           </div>
 
                           {/* Col 5: Zona Antrean */}
-                          <div className="flex flex-col p-2 rounded-control bg-raised border border-line/60">
-                            <span className="text-[9px] font-bold uppercase text-subtle tracking-wider">
+                          <div className="flex flex-col justify-between p-2.5 sm:p-3 rounded-control bg-raised border border-line/70 min-h-[64px]">
+                            <span className="text-[10px] font-bold uppercase text-subtle tracking-wider leading-tight">
                               Zona Antrean
                             </span>
-                            <span className="text-xs font-bold text-ink mt-0.5">
-                              ZONA 2
-                            </span>
-                            <span className="text-[10px] text-subtle truncate">
-                              Prioritas Reguler
-                            </span>
+                            <div className="mt-1">
+                              <span className="text-xs sm:text-sm font-bold text-ink block">
+                                ZONA 2
+                              </span>
+                              <span className="text-[11px] text-subtle block mt-0.5">
+                                Prioritas Reguler
+                              </span>
+                            </div>
                           </div>
 
                           {/* Col 6: Jatah Bagasi */}
-                          <div className="flex flex-col p-2 rounded-control bg-raised border border-line/60">
-                            <span className="text-[9px] font-bold uppercase text-subtle tracking-wider">
+                          <div className="flex flex-col justify-between p-2.5 sm:p-3 rounded-control bg-raised border border-line/70 min-h-[64px]">
+                            <span className="text-[10px] font-bold uppercase text-subtle tracking-wider leading-tight">
                               Jatah Bagasi
                             </span>
-                            <span className="text-xs font-bold text-ink mt-0.5">
-                              Kabin 7 kg
-                            </span>
-                            <span className="text-[10px] text-subtle truncate">
-                              {activePax.baggage_option ? activePax.baggage_option.name : 'Bagasi 20 kg'}
-                            </span>
+                            <div className="mt-1">
+                              <span className="text-xs sm:text-sm font-bold text-ink block">
+                                Kabin 7 kg
+                              </span>
+                              <span className="text-[11px] text-subtle block mt-0.5">
+                                {activePax.baggage_option ? activePax.baggage_option.name : 'Bagasi 20 kg'}
+                              </span>
+                            </div>
                           </div>
                         </div>
                       </div>

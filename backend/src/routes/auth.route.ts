@@ -4,7 +4,7 @@ import bcrypt from 'bcryptjs'
 import jwt from 'jsonwebtoken'
 import { eq } from 'drizzle-orm'
 import { db } from '../db/index.js'
-import { users } from '../db/schema.js'
+import { users, bookings } from '../db/schema.js'
 import { authMiddleware } from '../middleware/auth.middleware.js'
 import {
   registerSchema,
@@ -605,10 +605,12 @@ authRoute.get('/me', authMiddleware, async (c) => {
       id: users.id,
       name: users.name,
       email: users.email,
+      phone: users.phone,
       role: users.role,
       password: users.password,
       googleId: users.googleId,
       emailVerifiedAt: users.emailVerifiedAt,
+      createdAt: users.createdAt,
     })
     .from(users)
     .where(eq(users.id, userId))
@@ -625,17 +627,99 @@ authRoute.get('/me', authMiddleware, async (c) => {
     )
   }
 
+  // Count user bookings
+  const userBookings = await db
+    .select({ id: bookings.id, status: bookings.status })
+    .from(bookings)
+    .where(eq(bookings.userId, userId))
+
+  const totalBookings = userBookings.length
+  const paidBookings = userBookings.filter((b) => b.status === 'paid').length
+
   return c.json({
     error: false,
     data: {
       id: user.id,
       name: user.name,
       email: user.email,
+      phone: user.phone || null,
       role: user.role,
       email_verified: Boolean(user.emailVerifiedAt),
       has_password: Boolean(user.password),
       has_google: Boolean(user.googleId),
+      created_at: user.createdAt,
+      stats: {
+        total_bookings: totalBookings,
+        paid_bookings: paidBookings,
+      },
     },
+  })
+})
+
+// PUT /api/auth/profile
+authRoute.put('/profile', authMiddleware, async (c) => {
+  const userId = c.get('userId')
+  const body = await c.req.json().catch(() => ({}))
+  const { name, phone } = body
+
+  if (!name || typeof name !== 'string' || name.trim().length < 2) {
+    return c.json({ error: true, message: 'Nama lengkap minimal 2 karakter' }, 400)
+  }
+
+  const [updated] = await db
+    .update(users)
+    .set({
+      name: name.trim(),
+      phone: phone ? String(phone).trim() : null,
+    })
+    .where(eq(users.id, userId))
+    .returning({
+      id: users.id,
+      name: users.name,
+      email: users.email,
+      phone: users.phone,
+      role: users.role,
+    })
+
+  return c.json({
+    error: false,
+    message: 'Profil berhasil diperbarui',
+    data: updated,
+  })
+})
+
+// PUT /api/auth/change-password
+authRoute.put('/change-password', authMiddleware, async (c) => {
+  const userId = c.get('userId')
+  const body = await c.req.json().catch(() => ({}))
+  const { current_password, new_password } = body
+
+  if (!new_password || typeof new_password !== 'string' || new_password.length < 6) {
+    return c.json({ error: true, message: 'Kata sandi baru minimal 6 karakter' }, 400)
+  }
+
+  const [user] = await db.select().from(users).where(eq(users.id, userId)).limit(1)
+  if (!user) {
+    return c.json({ error: true, message: 'Pengguna tidak ditemukan' }, 404)
+  }
+
+  // If user has existing password, verify it
+  if (user.password) {
+    if (!current_password) {
+      return c.json({ error: true, message: 'Kata sandi saat ini wajib diisi' }, 400)
+    }
+    const isValid = await bcrypt.compare(current_password, user.password)
+    if (!isValid) {
+      return c.json({ error: true, message: 'Kata sandi saat ini tidak sesuai' }, 400)
+    }
+  }
+
+  const hashedPassword = await bcrypt.hash(new_password, 10)
+  await db.update(users).set({ password: hashedPassword }).where(eq(users.id, userId))
+
+  return c.json({
+    error: false,
+    message: 'Kata sandi berhasil diperbarui',
   })
 })
 
