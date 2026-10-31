@@ -4,6 +4,7 @@ import Navbar from '../../components/layout/Navbar'
 import Footer from '../../components/layout/Footer'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/authStore'
+import { AirlineLogo } from '../../components/common/AirlineLogo'
 
 export interface FlightSegment {
   id: number
@@ -158,13 +159,21 @@ export default function SearchResults() {
 
   // Unique airlines from search results
   const availableAirlines = useMemo(() => {
-    const map = new Map<string, { name: string; minPrice: number }>()
+    const map = new Map<
+      string,
+      { name: string; code?: string; logo?: string | null; minPrice: number }
+    >()
     flights.forEach((f) => {
       if (f.airline?.name) {
         const p = cabinClass === 'business' && f.price_business ? f.price_business : f.price_economy
         const existing = map.get(f.airline.name)
         if (!existing || p < existing.minPrice) {
-          map.set(f.airline.name, { name: f.airline.name, minPrice: p })
+          map.set(f.airline.name, {
+            name: f.airline.name,
+            code: f.airline.code,
+            logo: f.airline.logo,
+            minPrice: p,
+          })
         }
       }
     })
@@ -626,6 +635,12 @@ export default function SearchResults() {
                           }}
                           className="w-4 h-4 rounded text-brand accent-brand cursor-pointer"
                         />
+                        <AirlineLogo
+                          code={airline.code}
+                          name={airline.name}
+                          logo={airline.logo}
+                          size="xs"
+                        />
                         <span className="text-ink group-hover:text-brand-fg transition-colors">
                           {airline.name}
                         </span>
@@ -875,20 +890,23 @@ export default function SearchResults() {
                         {/* Primary Row Content */}
                         <div className="p-4 md:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
                           {/* Left: Airline & Flight Code */}
-                          <div className="w-full md:w-48 shrink-0 flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-control bg-tint text-brand-fg font-bold flex items-center justify-center text-sm shrink-0">
-                              {flight.airline?.code || 'SB'}
-                            </div>
-                            <div className="flex flex-col">
-                              <span className="font-bold text-ink text-sm">
+                          <div className="w-full md:w-52 shrink-0 flex items-center gap-3">
+                            <AirlineLogo
+                              code={flight.airline?.code}
+                              name={flight.airline?.name}
+                              logo={flight.airline?.logo}
+                              size="md"
+                            />
+                            <div className="flex flex-col min-w-0">
+                              <span className="font-bold text-ink text-sm truncate" title={flight.airline?.name || 'SkyBook Air'}>
                                 {flight.airline?.name || 'SkyBook Air'}
                               </span>
                               <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className="text-[10px] font-bold bg-page border border-line px-1.5 py-0.5 rounded text-subtle">
+                                <span className="text-[10px] font-bold bg-page border border-line px-1.5 py-0.5 rounded text-subtle shrink-0">
                                   {flight.flight_number}
                                 </span>
                                 {seatRemain <= 5 && seatRemain > 0 && (
-                                  <span className="text-[10px] font-bold text-danger">
+                                  <span className="text-[10px] font-bold text-danger shrink-0">
                                     Sisa {seatRemain} kursi
                                   </span>
                                 )}
@@ -1076,10 +1094,18 @@ export default function SearchResults() {
                                       </div>
 
                                       <div className="bg-raised p-2 rounded-control text-subtle flex items-center justify-between text-[11px]">
-                                        <span>
-                                          {flight.airline?.name} ({flight.flight_number}) •{' '}
-                                          {flight.airplane?.model}
-                                        </span>
+                                        <div className="flex items-center gap-2">
+                                          <AirlineLogo
+                                            code={flight.airline?.code}
+                                            name={flight.airline?.name}
+                                            logo={flight.airline?.logo}
+                                            size="xs"
+                                          />
+                                          <span className="font-medium text-ink">
+                                            {flight.airline?.name} ({flight.flight_number}) •{' '}
+                                            {flight.airplane?.model}
+                                          </span>
+                                        </div>
                                         <span className="font-semibold text-ink">
                                           {formatDuration(
                                             Math.round(

@@ -3,6 +3,7 @@ import { useParams, Link, useNavigate } from 'react-router-dom'
 import Navbar from '../../components/layout/Navbar'
 import Footer from '../../components/layout/Footer'
 import { api } from '../../lib/api'
+import { AirlineLogo } from '../../components/common/AirlineLogo'
 
 interface BookingDetailData {
   id: number
@@ -82,6 +83,22 @@ export default function Checkout() {
     fetchBooking()
   }, [bookingId])
 
+  // Injeksi Script Midtrans Snap.js secara dinamis
+  useEffect(() => {
+    const snapScriptUrl = 'https://app.sandbox.midtrans.com/snap/snap.js'
+    const clientKey =
+      import.meta.env.VITE_MIDTRANS_CLIENT_KEY || 'Mid-client-y73CSr3TzUAf0p0G'
+
+    let script = document.querySelector(`script[src="${snapScriptUrl}"]`) as HTMLScriptElement
+    if (!script) {
+      script = document.createElement('script')
+      script.src = snapScriptUrl
+      script.setAttribute('data-client-key', clientKey)
+      script.async = true
+      document.body.appendChild(script)
+    }
+  }, [])
+
   // Countdown timer tick
   useEffect(() => {
     if (secondsRemaining <= 0) return
@@ -105,15 +122,22 @@ export default function Checkout() {
   const handlePay = async () => {
     if (!booking) return
     setIsProcessing(true)
+    setErrorMsg(null)
+
     try {
-      // 1. Coba create transaksi Midtrans Snap jika tersedia
+      // 1. Coba create transaksi Midtrans Snap
       const createRes = await api.post('/payment/create', {
         booking_id: booking.id,
-      }).catch(() => null)
+      }).catch((err) => {
+        console.warn('Midtrans payment creation note:', err?.response?.data?.message || err?.message)
+        return null
+      })
 
-      const snapToken = (createRes as any)?.data?.data?.token
+      const snapData = (createRes as any)?.data?.data || (createRes as any)?.data
+      const snapToken = snapData?.token
 
-      if (snapToken && (window as any).snap) {
+      // Jika snapToken valid dan snap.js sudah terpasang
+      if (snapToken && !snapToken.startsWith('mock-snap-') && (window as any).snap) {
         (window as any).snap.pay(snapToken, {
           onSuccess: () => navigate(`/payment/result?booking=${booking.id}`),
           onPending: () => navigate(`/payment/result?booking=${booking.id}`),
@@ -123,17 +147,27 @@ export default function Checkout() {
         return
       }
 
-      // 2. Simulasi pembayaran instan (dev / sandbox demo)
+      // 2. Simulasi pembayaran otomatis jika menggunakan mock token / snap popup tidak aktif
       await api.post('/payments/simulate', {
         booking_id: booking.id,
         payment_method: paymentMethod,
       })
       setIsProcessing(false)
-      navigate(`/payment/result?booking=${booking.id}`)
+      setIsSuccessModalOpen(true)
     } catch (err: any) {
       console.error('Payment error:', err)
-      setIsProcessing(false)
-      setIsSuccessModalOpen(true)
+      // Fallback cadangan agar user tidak stuck jika terjadi kendala jaringan
+      try {
+        await api.post('/payments/simulate', {
+          booking_id: booking.id,
+          payment_method: paymentMethod,
+        })
+        setIsProcessing(false)
+        setIsSuccessModalOpen(true)
+      } catch (simErr: any) {
+        setIsProcessing(false)
+        setErrorMsg(err?.response?.data?.message || err?.message || 'Gagal memproses pembayaran.')
+      }
     }
   }
 
@@ -249,9 +283,12 @@ export default function Checkout() {
               <div className="bg-raised border border-line rounded-ticket p-5 shadow-xs space-y-4">
                 <div className="flex items-center justify-between border-b border-line pb-3">
                   <div className="flex items-center gap-2.5">
-                    <div className="w-8 h-8 rounded-control bg-tint text-brand-fg flex items-center justify-center">
-                      <span className="material-symbols-outlined text-[18px]">flight</span>
-                    </div>
+                    <AirlineLogo
+                      code={flight?.airline?.code}
+                      name={flight?.airline?.name}
+                      logo={flight?.airline?.logo}
+                      size="sm"
+                    />
                     <div>
                       <h3 className="font-bold text-ink text-sm">
                         {flight?.airline?.name || 'SkyBook Air'} • {flight?.flightNumber || flight?.flight_number || 'KA 412'}

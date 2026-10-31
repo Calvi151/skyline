@@ -3,6 +3,7 @@ import { useSearchParams, Link } from 'react-router-dom'
 import Navbar from '../../components/layout/Navbar'
 import Footer from '../../components/layout/Footer'
 import { api } from '../../lib/api'
+import { AirlineLogo } from '../../components/common/AirlineLogo'
 
 interface BookingData {
   id: number
@@ -502,8 +503,13 @@ export default function PaymentResult() {
               <div className="bg-raised border border-line rounded-ticket shadow-sm overflow-hidden">
                 {/* Header Bar */}
                 <div className="bg-panel border-b border-line p-4 flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <span className="material-symbols-outlined text-brand-fg text-[20px]">airlines</span>
+                  <div className="flex items-center gap-2.5">
+                    <AirlineLogo
+                      code={flight?.airline?.code}
+                      name={flight?.airline?.name}
+                      logo={flight?.airline?.logo}
+                      size="xs"
+                    />
                     <span className="font-bold text-ink text-sm">
                       {flight?.airline?.name || 'SkyBook Air'}
                     </span>

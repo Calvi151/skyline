@@ -3,6 +3,10 @@ import { useParams, Link } from 'react-router-dom'
 import Navbar from '../../components/layout/Navbar'
 import Footer from '../../components/layout/Footer'
 import { api } from '../../lib/api'
+import RealQrCode from '../../components/common/RealQrCode'
+import LandmarkWatermark from '../../components/common/LandmarkWatermark'
+import { AirlineLogo } from '../../components/common/AirlineLogo'
+import { getDestinationVisual, formatFlightDuration } from '../../lib/destinationMedia'
 
 interface Passenger {
   id: number
@@ -12,6 +16,8 @@ interface Passenger {
   gender: string
   seat_class: string
   seat_number?: string | null
+  boarding_pass_code?: string | null
+  is_checked_in?: boolean
   baggage_option?: {
     id: number
     name: string
@@ -272,6 +278,30 @@ export default function BookingTicket() {
   }, [booking, isFlightCancelled])
 
   const activePax = booking?.passengers[activePassengerIndex] || booking?.passengers[0]
+  const destVisual = useMemo(
+    () => getDestinationVisual(lastSeg?.destination?.code, lastSeg?.destination?.city),
+    [lastSeg?.destination?.code, lastSeg?.destination?.city],
+  )
+  const flightDurationStr = useMemo(
+    () => formatFlightDuration(firstSeg?.departure_time, lastSeg?.arrival_time),
+    [firstSeg?.departure_time, lastSeg?.arrival_time],
+  )
+  const boardingTimeStr = useMemo(() => {
+    if (!firstSeg?.departure_time) return '07.10'
+    try {
+      const d = new Date(firstSeg.departure_time)
+      d.setMinutes(d.getMinutes() - 30)
+      return `${String(d.getHours()).padStart(2, '0')}.${String(d.getMinutes()).padStart(2, '0')}`
+    } catch {
+      return '07.10'
+    }
+  }, [firstSeg?.departure_time])
+
+  const barcodeNumber = useMemo(() => {
+    const rawCode = (booking?.booking_code || '412093').replace(/\D/g, '') || '412093'
+    const paxId = activePax?.id || 1
+    return `${rawCode}${String(paxId).padStart(3, '0')}120471039`.slice(0, 15)
+  }, [booking?.booking_code, activePax?.id])
 
   if (loading) {
     return (
@@ -487,187 +517,282 @@ export default function BookingTicket() {
                 </div>
               )}
 
-              {/* ─── Landscape Ticket Pass Card (Stitch B10) ─── */}
+              {/* ─── Landscape Ticket Pass Card (Figma Blue Frame + Dribbble Arc + Vector Barcode) ─── */}
               {activePax && (
-                <div className="w-full bg-raised border border-line rounded-ticket shadow-sm relative overflow-hidden transition-all duration-300">
-                  <div className="flex flex-col md:flex-row relative">
-                    {/* Ticket Body (Main Segment) */}
-                    <div className="flex-1 p-6 sm:p-7 flex flex-col justify-between relative">
-                      {/* Top Header Strip */}
-                      <div className="flex items-center justify-between gap-3 mb-6">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 rounded-control bg-tint text-brand-fg flex items-center justify-center font-bold">
-                            <span className="material-symbols-outlined text-[24px]">airlines</span>
+                <div className="w-full p-2.5 sm:p-3 rounded-[22px] bg-[#1E60B5] dark:bg-[#154687] shadow-xl relative transition-all duration-300">
+                  <div className="w-full bg-raised rounded-[16px] relative overflow-hidden text-ink">
+                    <div className="flex flex-col md:flex-row relative">
+                      {/* Ticket Body (Left Section: Main Flight Ticket) */}
+                      <div className="flex-1 flex flex-col justify-between relative overflow-hidden">
+                        {/* 1. AIRLINE STRIP & AIRCRAFT (Clean Figma Header with Airline Logo) */}
+                        <div className="px-5 sm:px-7 py-3.5 sm:py-4 border-b border-line flex items-center justify-between gap-3 bg-panel/30">
+                          <div className="flex items-center gap-3">
+                            <AirlineLogo
+                              code={flight?.airline?.code}
+                              name={flight?.airline?.name}
+                              logo={flight?.airline?.logo}
+                              size="md"
+                            />
+                            <div>
+                              <h2 className="font-bold text-ink text-sm sm:text-base leading-tight">
+                                {flight?.airline?.name || 'Kenari Air'}
+                              </h2>
+                              <p className="text-xs text-subtle mt-0.5">
+                                Penerbangan {flight?.flight_number || 'KA 412'} • {flight?.airplane?.model || 'Boeing 737-800'}
+                              </p>
+                            </div>
                           </div>
-                          <div>
-                            <h2 className="font-bold text-ink text-sm sm:text-base leading-tight">
-                              {flight?.airline?.name || 'SkyBook Air'}
-                            </h2>
-                            <p className="text-xs text-subtle mt-0.5">
-                              {flight?.flight_number} • {flight?.airplane?.model || 'Boeing 737'} •{' '}
-                              <span className="capitalize">{activePax.seat_class || 'Ekonomi'}</span>
-                            </p>
+
+                          <div className="text-right shrink-0">
+                            <span className="px-2.5 py-0.5 rounded-full bg-tint text-brand-fg text-[10px] font-extrabold uppercase tracking-wider inline-block">
+                              {activePax.seat_class === 'business' ? 'KELAS BISNIS' : 'KELAS EKONOMI'}
+                            </span>
+                            <span className="text-xs font-bold text-subtle block mt-1 tabular-nums">
+                              {formatDate(firstSeg?.departure_time)}
+                            </span>
                           </div>
                         </div>
 
-                        <div className="text-right">
-                          <span className="text-[10px] font-bold uppercase text-subtle block">
-                            Jadwal Keberangkatan
-                          </span>
-                          <span className="text-xs font-bold text-ink">
-                            {formatDate(firstSeg?.departure_time)}
-                          </span>
-                        </div>
-                      </div>
+                        {/* 2. ROUTE & TIMING SHOWCASE + DRIBBBLE CURVED FLIGHT ARC + LANDMARK WATERMARK */}
+                        <div className="relative px-5 sm:px-7 py-6 overflow-hidden">
+                          <LandmarkWatermark
+                            type={destVisual.landmarkType}
+                            className="absolute inset-x-3 bottom-0 h-28 w-[calc(100%-1.5rem)] text-brand-fg opacity-[0.045] dark:opacity-[0.07] pointer-events-none"
+                          />
 
-                      {/* Oversized Flight Route Horizon */}
-                      <div className="grid grid-cols-12 items-center gap-2 my-2 py-3 bg-panel border border-line rounded-control px-4">
-                        {/* Origin */}
-                        <div className="col-span-4 flex flex-col">
-                          <span className="text-3xl sm:text-4xl font-bold text-ink tracking-tight leading-none">
-                            {firstSeg?.origin?.code || 'CGK'}
-                          </span>
-                          <span className="text-base font-bold tabular-nums text-ink mt-1">
-                            {formatTime(firstSeg?.departure_time)}
-                          </span>
-                          <span className="text-xs text-subtle truncate mt-0.5">
-                            {firstSeg?.origin?.city || 'Jakarta'}
-                          </span>
-                          <span className="text-[10px] text-subtle font-medium">
-                            {firstSeg?.origin?.name || 'Terminal 3'}
-                          </span>
-                        </div>
+                          <div className="relative z-10 grid grid-cols-12 items-center gap-2">
+                            {/* Origin */}
+                            <div className="col-span-4 flex flex-col">
+                              <span className="text-3xl sm:text-4xl font-extrabold text-ink tracking-tight leading-none">
+                                {firstSeg?.origin?.code || 'CGK'}
+                              </span>
+                              <span className="text-sm sm:text-base font-extrabold tabular-nums text-brand-fg mt-1.5">
+                                {formatTime(firstSeg?.departure_time)} WIB
+                              </span>
+                              <span className="text-xs font-bold text-ink truncate mt-0.5">
+                                {firstSeg?.origin?.city || 'Jakarta'}
+                              </span>
+                              <span className="text-[10px] text-subtle font-medium truncate">
+                                {firstSeg?.origin?.name || "Soekarno-Hatta Int'l (T3)"}
+                              </span>
+                            </div>
 
-                        {/* Track Indicator */}
-                        <div className="col-span-4 flex flex-col items-center px-1">
-                          <span className="text-[10px] font-bold text-brand-fg uppercase mb-1">
-                            {segments.length > 1 ? 'Transit' : 'Langsung'}
-                          </span>
-                          <div className="w-full flex items-center relative py-1">
-                            <div className="w-full h-0.5 bg-line"></div>
-                            <div className="absolute inset-0 flex items-center justify-center">
-                              <span className="material-symbols-outlined text-brand-fg text-[18px] bg-panel px-1">
-                                flight
+                            {/* Curved Track Indicator (Dribbble Arc) */}
+                            <div className="col-span-4 flex flex-col items-center px-1">
+                              <span className="px-2.5 py-0.5 rounded-full bg-tint/80 border border-brand-fg/20 text-[10px] font-bold text-brand-fg mb-1 tabular-nums">
+                                {segments.length > 1 ? `${flightDurationStr} • Transit` : `${flightDurationStr} • Langsung`}
+                              </span>
+                              <div className="relative w-full max-w-[175px] h-9 flex items-center justify-center">
+                                <svg viewBox="0 0 180 38" className="w-full h-full overflow-visible" aria-hidden="true">
+                                  <path
+                                    d="M 10 24 Q 90 -2 170 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeDasharray="4 4"
+                                    className="text-brand-fg"
+                                  />
+                                  <circle cx="10" cy="24" r="3.5" className="fill-brand-fg" />
+                                  <circle cx="170" cy="24" r="3.5" className="fill-signal" />
+                                </svg>
+                                <div className="absolute -top-0.5 w-7 h-7 rounded-full bg-tint border border-brand-fg/30 text-brand-fg flex items-center justify-center">
+                                  <span className="material-symbols-outlined text-[15px] rotate-90">
+                                    flight
+                                  </span>
+                                </div>
+                              </div>
+                              <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-0.5 flex items-center gap-1 uppercase tracking-wider">
+                                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                                <span>{isDelayed ? 'Tertunda' : 'Non-Stop Flight'}</span>
+                              </span>
+                            </div>
+
+                            {/* Destination */}
+                            <div className="col-span-4 flex flex-col text-right items-end">
+                              <span className="text-3xl sm:text-4xl font-extrabold text-ink tracking-tight leading-none">
+                                {lastSeg?.destination?.code || 'DPS'}
+                              </span>
+                              <span className="text-sm sm:text-base font-extrabold tabular-nums text-brand-fg mt-1.5">
+                                {formatTime(lastSeg?.arrival_time)}{' '}
+                                {lastSeg?.destination?.code === 'DPS' ? 'WITA' : destVisual.timezoneLabel}
+                              </span>
+                              <span className="text-xs font-bold text-ink truncate mt-0.5">
+                                {lastSeg?.destination?.city || 'Denpasar Bali'}
+                              </span>
+                              <span className="text-[10px] text-subtle font-medium truncate max-w-full">
+                                {lastSeg?.destination?.name || "Ngurah Rai Int'l (T1)"}
                               </span>
                             </div>
                           </div>
-                          <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 mt-1 flex items-center gap-1">
-                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                            <span>{isDelayed ? 'Tertunda' : 'Tepat Waktu'}</span>
-                          </span>
                         </div>
 
-                        {/* Destination */}
-                        <div className="col-span-4 flex flex-col text-right">
-                          <span className="text-3xl sm:text-4xl font-bold text-ink tracking-tight leading-none">
-                            {lastSeg?.destination?.code || 'DPS'}
-                          </span>
-                          <span className="text-base font-bold tabular-nums text-ink mt-1">
-                            {formatTime(lastSeg?.arrival_time)}
-                          </span>
-                          <span className="text-xs text-subtle truncate mt-0.5">
-                            {lastSeg?.destination?.city || 'Denpasar'}
-                          </span>
-                          <span className="text-[10px] text-subtle font-medium">
-                            {lastSeg?.destination?.name || 'Terminal 1'}
-                          </span>
+                        {/* 3. TABULAR GRID OF PASSENGER DETAILS (6 Columns matching Figma) */}
+                        <div className="px-5 sm:px-7 pb-5 pt-3.5 border-t border-line bg-panel/30 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 sm:gap-2.5 text-left">
+                          {/* Col 1: Nama Penumpang */}
+                          <div className="flex flex-col p-2 rounded-control bg-raised border border-line/60">
+                            <span className="text-[9px] font-bold uppercase text-subtle tracking-wider">
+                              Nama Penumpang
+                            </span>
+                            <span className="text-xs font-bold text-ink truncate mt-0.5">
+                              {activePax.full_name}
+                            </span>
+                            <span className="text-[10px] text-subtle truncate">
+                              Dewasa (ADT)
+                            </span>
+                          </div>
+
+                          {/* Col 2: Kursi (Seat) */}
+                          <div className="flex flex-col p-2 rounded-control bg-signal/[0.06] border border-signal/30">
+                            <span className="text-[9px] font-bold uppercase text-subtle tracking-wider">
+                              Kursi (Seat)
+                            </span>
+                            <span className="text-base font-black text-signal leading-tight mt-0.5 tabular-nums">
+                              {activePax.seat_number || 'Check-in'}
+                            </span>
+                            <span className="text-[10px] text-subtle truncate">
+                              {activePax.seat_number ? 'Jendela • Depan' : 'Saat check-in'}
+                            </span>
+                          </div>
+
+                          {/* Col 3: Pintu Masuk (Gate) */}
+                          <div className="flex flex-col p-2 rounded-control bg-raised border border-line/60">
+                            <span className="text-[9px] font-bold uppercase text-subtle tracking-wider">
+                              Pintu (Gate)
+                            </span>
+                            <span className="text-xs font-extrabold text-ink mt-0.5">
+                              Menunggu RDS
+                            </span>
+                            <span className="text-[10px] text-subtle truncate">
+                              Layar Terminal 3
+                            </span>
+                          </div>
+
+                          {/* Col 4: Waktu Boarding */}
+                          <div className="flex flex-col p-2 rounded-control bg-raised border border-line/60">
+                            <span className="text-[9px] font-bold uppercase text-subtle tracking-wider">
+                              Waktu Boarding
+                            </span>
+                            <span className="text-xs font-extrabold text-brand-fg mt-0.5 tabular-nums">
+                              {boardingTimeStr} WIB
+                            </span>
+                            <span className="text-[10px] text-subtle truncate">
+                              30m sblm terbang
+                            </span>
+                          </div>
+
+                          {/* Col 5: Zona Antrean */}
+                          <div className="flex flex-col p-2 rounded-control bg-raised border border-line/60">
+                            <span className="text-[9px] font-bold uppercase text-subtle tracking-wider">
+                              Zona Antrean
+                            </span>
+                            <span className="text-xs font-bold text-ink mt-0.5">
+                              ZONA 2
+                            </span>
+                            <span className="text-[10px] text-subtle truncate">
+                              Prioritas Reguler
+                            </span>
+                          </div>
+
+                          {/* Col 6: Jatah Bagasi */}
+                          <div className="flex flex-col p-2 rounded-control bg-raised border border-line/60">
+                            <span className="text-[9px] font-bold uppercase text-subtle tracking-wider">
+                              Jatah Bagasi
+                            </span>
+                            <span className="text-xs font-bold text-ink mt-0.5">
+                              Kabin 7 kg
+                            </span>
+                            <span className="text-[10px] text-subtle truncate">
+                              {activePax.baggage_option ? activePax.baggage_option.name : 'Bagasi 20 kg'}
+                            </span>
+                          </div>
                         </div>
                       </div>
 
-                      {/* Passenger & Boarding Details Strip */}
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-4">
-                        <div className="flex flex-col">
-                          <span className="text-[10px] font-bold uppercase text-subtle">
-                            Nama Penumpang
-                          </span>
-                          <span className="text-xs font-bold text-ink truncate mt-0.5">
-                            {activePax.full_name}
-                          </span>
-                          <span className="text-[10px] text-subtle">
-                            NIK: {activePax.id_number}
-                          </span>
-                        </div>
-
-                        <div className="flex flex-col">
-                          <span className="text-[10px] font-bold uppercase text-subtle">Kursi</span>
-                          <span className="text-sm font-bold text-brand-fg mt-0.5">
-                            {activePax.seat_number || 'Check-in'}
-                          </span>
-                          <span className="text-[10px] text-subtle">
-                            {activePax.seat_number ? 'Terkonfirmasi' : 'Pilih saat check-in'}
-                          </span>
-                        </div>
-
-                        <div className="flex flex-col">
-                          <span className="text-[10px] font-bold uppercase text-subtle">
-                            Gerbang / Gate
-                          </span>
-                          <span className="text-sm font-bold text-ink mt-0.5">D5</span>
-                          <span className="text-[10px] text-brand-fg font-medium">Siaga</span>
-                        </div>
-
-                        <div className="flex flex-col">
-                          <span className="text-[10px] font-bold uppercase text-subtle">
-                            Bagasi
-                          </span>
-                          <span className="text-xs font-bold text-ink mt-0.5">Kabin 7 kg</span>
-                          <span className="text-[10px] text-subtle">
-                            {activePax.baggage_option ? activePax.baggage_option.name : 'Standar'}
-                          </span>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Perforation Divider with Half-Circle Cutouts */}
-                    <div className="relative hidden md:flex flex-col items-center justify-between w-6">
-                      <div className="w-5 h-5 -mt-2.5 bg-page rounded-full border border-line"></div>
-                      <div className="w-0.5 h-full border-r-2 border-dashed border-line my-2"></div>
-                      <div className="w-5 h-5 -mb-2.5 bg-page rounded-full border border-line"></div>
-                    </div>
-
-                    {/* Mobile Dashed Line */}
-                    <div className="md:hidden flex items-center justify-between h-6 w-full relative">
-                      <div className="w-5 h-5 -ml-2.5 bg-page rounded-full border border-line"></div>
-                      <div className="w-full h-0.5 border-b-2 border-dashed border-line"></div>
-                      <div className="w-5 h-5 -mr-2.5 bg-page rounded-full border border-line"></div>
-                    </div>
-
-                    {/* Right Stub: Boarding Gate Scanner (Stitch B10) */}
-                    <div className="w-full md:w-[240px] bg-panel/60 p-6 flex flex-col items-center justify-between text-center relative group">
-                      <div className="w-full flex items-center justify-between mb-3 text-xs">
-                        <span className="font-bold text-ink uppercase text-[10px]">Boarding Pass</span>
-                        <span className="font-bold text-brand-fg uppercase text-[10px]">ZONA 2</span>
+                      {/* Perforation Divider with Half-Circle Cutouts */}
+                      <div className="relative hidden md:flex flex-col items-center justify-between w-6 bg-raised">
+                        <div className="w-6 h-6 -mt-3.5 bg-[#1E60B5] dark:bg-[#154687] rounded-full z-20"></div>
+                        <div className="w-0.5 h-full border-r-2 border-dashed border-line my-2"></div>
+                        <div className="w-6 h-6 -mb-3.5 bg-[#1E60B5] dark:bg-[#154687] rounded-full z-20"></div>
                       </div>
 
-                      {/* Vector QR Matrix Pattern */}
-                      <div
-                        onClick={() => setIsQrModalOpen(true)}
-                        className="relative w-36 h-36 bg-white p-2.5 rounded-control border border-line flex items-center justify-center cursor-pointer group/qr transition-transform hover:scale-105 duration-200 shadow-2xs"
-                        title="Klik untuk perbesar QR code"
-                      >
-                        <svg
-                          aria-label="QR Code boarding pass"
-                          className="w-full h-full text-slate-900 fill-current"
-                          viewBox="0 0 100 100"
+                      {/* Mobile Dashed Line */}
+                      <div className="md:hidden flex items-center justify-between h-6 w-full relative bg-raised">
+                        <div className="w-5 h-5 -ml-2.5 bg-[#1E60B5] dark:bg-[#154687] rounded-full z-20"></div>
+                        <div className="w-full h-0.5 border-b-2 border-dashed border-line"></div>
+                        <div className="w-5 h-5 -mr-2.5 bg-[#1E60B5] dark:bg-[#154687] rounded-full z-20"></div>
+                      </div>
+
+                      {/* Right Stub: Boarding Gate Scanner & Stub */}
+                      <div className="w-full md:w-[245px] bg-panel/75 p-5 sm:p-6 flex flex-col items-center justify-between text-center relative group">
+                        <div className="w-full flex items-center justify-between pb-2.5 mb-2 border-b border-line text-left">
+                          <div>
+                            <span className="font-bold text-subtle uppercase text-[9px] tracking-widest block">
+                              PASS STUB
+                            </span>
+                            <span className="font-extrabold text-ink text-xs">
+                              {flight?.flight_number} • {(flight?.airline?.name || 'SkyBook').split(' ')[0]}
+                            </span>
+                          </div>
+                          <span className="px-2 py-0.5 rounded bg-tint text-brand-fg font-extrabold uppercase text-[9px]">
+                            {activePax.seat_class === 'business' ? 'BUSINESS' : 'ECONOMY'}
+                          </span>
+                        </div>
+
+                        {/* Vector QR Matrix Pattern */}
+                        <div
+                          onClick={() => setIsQrModalOpen(true)}
+                          className="relative w-32 h-32 bg-white p-2 rounded-control border border-line flex items-center justify-center cursor-pointer group/qr transition-transform hover:scale-105 duration-200 shadow-2xs"
+                          title="Klik untuk perbesar QR code"
                         >
-                          <path d="M5 5h30v30H5V5zm5 5v20h20V10H10zM15 15h10v10H15V15zm50-10h30v30H65V5zm5 5v20h20V10H70zM75 15h10v10H75V15zM5 65h30v30H5V65zm5 5v20h20V70H10zM15 75h10v10H15V75zm35-65h10v10H50V10zm5 15h10v10H55V25zm-15 15h10v15H40V40zm25 0h10v10H65V40zm15 10h15v10H80V50zm-30 15h10v10H50V65zm20 0h10v10H70V65zm-15 15h10v15H55V80zm25 0h15v15H80V80zM40 70h10v10H40V70zM60 50h10v10H60V50z" />
-                          <rect height="6" width="6" x="2" y="2" />
-                          <rect height="6" width="6" x="92" y="2" />
-                          <rect height="6" width="6" x="2" y="92" />
-                        </svg>
+                          <RealQrCode
+                            value={activePax.boarding_pass_code || booking.booking_code}
+                            size={116}
+                            alt="E-Ticket QR Code"
+                          />
 
-                        {/* Tooltip Overlay */}
-                        <div className="absolute inset-0 bg-black/75 rounded-control opacity-0 group-hover/qr:opacity-100 transition-opacity flex flex-col items-center justify-center text-white gap-1 p-2">
-                          <span className="material-symbols-outlined text-[22px]">zoom_in</span>
-                          <span className="text-[10px] font-semibold">Perbesar QR</span>
+                          {/* Tooltip Overlay */}
+                          <div className="absolute inset-0 bg-black/75 rounded-control opacity-0 group-hover/qr:opacity-100 transition-opacity flex flex-col items-center justify-center text-white gap-1 p-2">
+                            <span className="material-symbols-outlined text-[20px]">zoom_in</span>
+                            <span className="text-[10px] font-semibold">Perbesar QR</span>
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="mt-3 flex flex-col gap-0.5">
-                        <span className="text-[10px] text-subtle">Pindai saat di gerbang</span>
-                        <span className="text-xs font-mono font-bold tracking-wider text-ink mt-0.5">
-                          ETKT-{flight?.airline?.code || 'SB'}-{booking.booking_code}-{activePax.id}
-                        </span>
+                        <div className="mt-2.5 flex flex-col gap-0.5 w-full">
+                          <span className="text-[9px] uppercase font-bold tracking-widest text-subtle">
+                            BOARDING REFERENCE
+                          </span>
+                          <span className="text-xs font-mono font-extrabold tracking-wider text-ink">
+                            {activePax.boarding_pass_code || `BP-${booking.booking_code}-${activePax.id}`}
+                          </span>
+                          <span className="text-[10px] text-subtle">
+                            Kode PNR: <strong className="text-ink font-mono">{booking.booking_code}</strong>
+                          </span>
+                          <p className="text-[9px] text-subtle leading-tight mt-1">
+                            Tingkatkan kecerahan layar ke tingkat maksimal saat pemindaian mesin gerbang.
+                          </p>
+                          {/* Mini 1D Barcode with numeric code */}
+                          <div className="w-full pt-2 mt-1.5 border-t border-line flex flex-col items-center">
+                            <div className="w-full h-5 flex items-stretch justify-center gap-[2px] opacity-80">
+                              <span className="w-[2px] bg-ink" />
+                              <span className="w-[1px] bg-ink" />
+                              <span className="w-[3px] bg-ink" />
+                              <span className="w-[1px] bg-ink" />
+                              <span className="w-[2px] bg-ink" />
+                              <span className="w-[4px] bg-ink" />
+                              <span className="w-[1px] bg-ink" />
+                              <span className="w-[2px] bg-ink" />
+                              <span className="w-[3px] bg-ink" />
+                              <span className="w-[1px] bg-ink" />
+                              <span className="w-[2px] bg-ink" />
+                              <span className="w-[1px] bg-ink" />
+                              <span className="w-[3px] bg-ink" />
+                              <span className="w-[2px] bg-ink" />
+                            </div>
+                            <span className="text-[9px] font-mono tracking-widest text-subtle mt-0.5">
+                              {barcodeNumber}
+                            </span>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -1118,17 +1243,13 @@ export default function BookingTicket() {
               </button>
             </div>
 
-            <div className="w-56 h-56 mx-auto p-4 bg-slate-50 border border-slate-200 rounded-control flex items-center justify-center">
-              <svg
-                aria-label="Enlarged QR Code"
-                className="w-full h-full text-slate-950 fill-current"
-                viewBox="0 0 100 100"
-              >
-                <path d="M5 5h30v30H5V5zm5 5v20h20V10H10zM15 15h10v10H15V15zm50-10h30v30H65V5zm5 5v20h20V10H70zM75 15h10v10H75V15zM5 65h30v30H5V65zm5 5v20h20V70H10zM15 75h10v10H15V75zm35-65h10v10H50V10zm5 15h10v10H55V25zm-15 15h10v15H40V40zm25 0h10v10H65V40zm15 10h15v10H80V50zm-30 15h10v10H50V65zm20 0h10v10H70V65zm-15 15h10v15H55V80zm25 0h15v15H80V80zM40 70h10v10H40V70zM60 50h10v10H60V50z" />
-                <rect height="6" width="6" x="2" y="2" />
-                <rect height="6" width="6" x="92" y="2" />
-                <rect height="6" width="6" x="2" y="92" />
-              </svg>
+            <div className="w-56 h-56 mx-auto p-4 bg-white border border-slate-200 rounded-control flex items-center justify-center shadow-sm">
+              <RealQrCode
+                value={activePax?.boarding_pass_code || booking.booking_code}
+                size={200}
+                border={2}
+                alt="Enlarged E-Ticket QR Code"
+              />
             </div>
 
             <div className="space-y-1">

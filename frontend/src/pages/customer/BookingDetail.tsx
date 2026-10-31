@@ -6,12 +6,103 @@ import SeatMap from '../../components/booking/SeatMap'
 import { useAuthStore } from '../../store/authStore'
 import { useBookingStore, PassengerData } from '../../store/bookingStore'
 import { api } from '../../lib/api'
+import { AirlineLogo } from '../../components/common/AirlineLogo'
 
 interface BaggageOption {
   id: number
   name: string
   weight_kg: number
   price: number | string
+}
+
+/**
+ * Validasi Nomor Identitas Resmi (NIK KTP atau Nomor Paspor)
+ * NIK: 16 digit angka
+ * Paspor: 6-16 karakter alfanumerik
+ */
+export function validateIdentityNumber(val?: string | null): {
+  valid: boolean
+  type: 'nik' | 'passport' | 'empty' | 'invalid'
+  message: string
+} {
+  const clean = (val || '').trim().replace(/\s+/g, '')
+  if (!clean) {
+    return { valid: false, type: 'empty', message: 'Nomor identitas wajib diisi' }
+  }
+
+  const isDigitsOnly = /^\d+$/.test(clean)
+  if (isDigitsOnly) {
+    if (clean.length === 16) {
+      return { valid: true, type: 'nik', message: 'NIK KTP Valid (16 digit)' }
+    }
+    return {
+      valid: false,
+      type: 'nik',
+      message: `NIK harus 16 digit angka (${clean.length}/16)`,
+    }
+  }
+
+  // Paspor: 6-16 karakter alfanumerik
+  const isPassport = /^[A-Za-z0-9]{6,16}$/.test(clean)
+  if (isPassport) {
+    return { valid: true, type: 'passport', message: 'Nomor Paspor Valid' }
+  }
+
+  return {
+    valid: false,
+    type: 'invalid',
+    message: 'Format tidak valid (NIK 16 digit atau Paspor 6-16 karakter)',
+  }
+}
+
+/**
+ * Kalkulasi usia dan kategori penumpang penerbangan berdasarkan tanggal lahir
+ */
+export function calculatePassengerAge(birthDateStr?: string | null): {
+  age: number | null
+  category: 'Dewasa' | 'Anak-anak' | 'Bayi' | 'Lansia' | ''
+  isValid: boolean
+  error?: string
+} {
+  if (!birthDateStr) {
+    return { age: null, category: '', isValid: false }
+  }
+
+  const birth = new Date(birthDateStr)
+  if (isNaN(birth.getTime())) {
+    return { age: null, category: '', isValid: false, error: 'Format tanggal tidak valid' }
+  }
+
+  const now = new Date()
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const birthDay = new Date(birth.getFullYear(), birth.getMonth(), birth.getDate())
+
+  if (birthDay > today) {
+    return { age: null, category: '', isValid: false, error: 'Tanggal lahir tidak boleh di masa depan' }
+  }
+
+  let age = today.getFullYear() - birthDay.getFullYear()
+  const monthDiff = today.getMonth() - birthDay.getMonth()
+  if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birthDay.getDate())) {
+    age--
+  }
+
+  if (age < 0 || age > 120) {
+    return { age, category: '', isValid: false, error: 'Tanggal lahir tidak realistis' }
+  }
+
+  let category: 'Dewasa' | 'Anak-anak' | 'Bayi' | 'Lansia' = 'Dewasa'
+  if (age < 2) {
+    category = 'Bayi'
+  } else if (age < 12) {
+    category = 'Anak-anak'
+  } else if (age >= 60) {
+    category = 'Lansia'
+  } else {
+    category = 'Dewasa'
+  }
+
+  return { age, category, isValid: true }
 }
 
 export default function BookingDetail() {
@@ -57,7 +148,7 @@ export default function BookingDetail() {
         initial.push({
           full_name: i === 0 && user?.name ? user.name : '',
           id_number: '',
-          birth_date: '1995-05-18',
+          birth_date: '',
           gender: 'male',
           seat_class: cabinClassParam,
           seat_id: null,
@@ -81,22 +172,24 @@ export default function BookingDetail() {
     setErrorMsg(null)
     try {
       const [flightRes, baggageRes] = await Promise.all([
-        api.get<{ data: any }>(`/flights/${id}`),
-        api.get<{ data: BaggageOption[] }>('/baggage-options').catch(() => ({ data: [] })),
+        api.get<any>(`/flights/${id}`),
+        api.get<any>('/baggage-options').catch(() => ({ data: [] })),
       ])
 
-      if (flightRes?.data) {
-        setFlight(flightRes.data)
+      const flightData = flightRes?.data?.data || flightRes?.data
+      if (flightData && (flightData.id || flightData.flight_number)) {
+        setFlight(flightData)
       } else {
         setErrorMsg('Data penerbangan tidak ditemukan.')
       }
 
-      if (Array.isArray(baggageRes?.data)) {
-        setBaggageOptions(baggageRes.data)
+      const baggageData = baggageRes?.data?.data || baggageRes?.data
+      if (Array.isArray(baggageData)) {
+        setBaggageOptions(baggageData)
       }
     } catch (err: any) {
       console.error('Failed to load flight detail:', err)
-      setErrorMsg(err?.message || 'Gagal memuat jadwal penerbangan.')
+      setErrorMsg(err?.response?.data?.message || err?.message || 'Gagal memuat jadwal penerbangan.')
     } finally {
       setLoading(false)
     }
@@ -165,15 +258,16 @@ export default function BookingDetail() {
 
   // Validation: Check if Step 1 is complete
   const isPassengerComplete = (p: PassengerData) => {
-    return (
-      p.full_name.trim().length >= 2 &&
-      p.id_number.trim().length >= 6 &&
-      Boolean(p.birth_date) &&
-      Boolean(p.gender)
-    )
+    const isNameValid = p.full_name.trim().length >= 2
+    const idValidation = validateIdentityNumber(p.id_number)
+    const ageValidation = calculatePassengerAge(p.birth_date)
+    const isGenderValid = Boolean(p.gender)
+
+    return isNameValid && idValidation.valid && ageValidation.isValid && isGenderValid
   }
 
   const allPassengersComplete = useMemo(() => {
+    if (!passengers || passengers.length === 0) return false
     return passengers.every(isPassengerComplete)
   }, [passengers])
 
@@ -181,7 +275,9 @@ export default function BookingDetail() {
   const handleProceedToSeats = (e: React.FormEvent) => {
     e.preventDefault()
     if (!allPassengersComplete) {
-      setBookingError('Mohon lengkapi data seluruh penumpang sebelum melanjutkan.')
+      setBookingError(
+        'Mohon lengkapi seluruh data identitas (NIK 16 digit / Paspor) dan tanggal lahir penumpang terlebih dahulu.',
+      )
       return
     }
     setBookingError(null)
@@ -208,13 +304,23 @@ export default function BookingDetail() {
 
   // Final submit booking (POST /api/bookings)
   const handleCreateBooking = async () => {
+    // 1. Guard kelengkapan data penumpang
+    if (!allPassengersComplete) {
+      setBookingError(
+        'Data identitas (NIK / Paspor) atau tanggal lahir penumpang belum lengkap. Mohon periksa kembali di Langkah 1.',
+      )
+      setCurrentStep(1)
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+
     setBookingSubmitting(true)
     setBookingError(null)
 
     // Verify email guard
     if (user && user.email_verified === false) {
       setBookingError(
-        'Email Anda belum terverifikasi. Silakan cek email dan verifikasi akun sebelum memesan tiket.'
+        'Email Anda belum terverifikasi. Silakan cek email dan verifikasi akun sebelum memesan tiket.',
       )
       setBookingSubmitting(false)
       return
@@ -249,21 +355,25 @@ export default function BookingDetail() {
         passengers: payloadPassengers,
       })
 
-      if (res?.data?.id) {
-        navigate(`/checkout/${res.data.id}`)
+      const bookingData = res?.data?.data || res?.data
+      if (bookingData?.id) {
+        navigate(`/checkout/${bookingData.id}`)
       } else {
         setBookingError('Gagal memproses pemesanan tiket.')
       }
     } catch (err: any) {
       console.error('Booking failed:', err)
-      if (err?.code === 'SEAT_NOT_AVAILABLE') {
-        setBookingError(err.message || 'Kursi yang dipilih baru saja dipesan. Silakan pilih kursi lain.')
+      const errCode = err?.response?.data?.code || err?.code
+      const errMsg = err?.response?.data?.message || err?.message
+
+      if (errCode === 'SEAT_NOT_AVAILABLE') {
+        setBookingError(errMsg || 'Kursi yang dipilih baru saja dipesan. Silakan pilih kursi lain.')
         // Reload seat map
         loadFlightAndBaggage()
-      } else if (err?.code === 'FLIGHT_CANCELLED') {
+      } else if (errCode === 'FLIGHT_CANCELLED') {
         setBookingError('Penerbangan ini dibatalkan oleh maskapai.')
       } else {
-        setBookingError(err?.message || 'Terjadi kesalahan saat memproses pesanan.')
+        setBookingError(errMsg || 'Terjadi kesalahan saat memproses pesanan.')
       }
     } finally {
       setBookingSubmitting(false)
@@ -423,9 +533,12 @@ export default function BookingDetail() {
                 <div className="bg-raised border border-line rounded-ticket p-5 shadow-xs">
                   <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                     <div className="flex items-center gap-3.5">
-                      <div className="w-10 h-10 rounded-control bg-tint text-brand-fg flex items-center justify-center shrink-0">
-                        <span className="material-symbols-outlined text-[22px]">flight</span>
-                      </div>
+                      <AirlineLogo
+                        code={flight.airline?.code}
+                        name={flight.airline?.name}
+                        logo={flight.airline?.logo}
+                        size="md"
+                      />
                       <div className="flex flex-col">
                         <div className="flex items-center gap-2">
                           <span className="font-bold text-ink text-sm">
@@ -518,7 +631,14 @@ export default function BookingDetail() {
                                 {idx + 1}
                               </div>
                               <h2 className="font-bold text-ink text-sm sm:text-base">
-                                Penumpang {idx + 1} (Dewasa)
+                                Penumpang {idx + 1}
+                                {(() => {
+                                  const ageInfo = calculatePassengerAge(p.birth_date)
+                                  if (ageInfo.isValid && ageInfo.age !== null) {
+                                    return ` • ${ageInfo.category} (${ageInfo.age} thn)`
+                                  }
+                                  return ''
+                                })()}
                               </h2>
                             </div>
 
@@ -532,7 +652,7 @@ export default function BookingDetail() {
                               <span className="material-symbols-outlined text-[14px]">
                                 {isComplete ? 'check_circle' : 'pending'}
                               </span>
-                              <span>{isComplete ? 'Lengkap' : 'Belum lengkap'}</span>
+                              <span>{isComplete ? 'Data Lengkap' : 'Belum Lengkap'}</span>
                             </span>
                           </div>
 
@@ -575,85 +695,153 @@ export default function BookingDetail() {
                               </span>
                             </div>
 
-                            {/* Identity Document NIK */}
-                            <div className="flex flex-col gap-1.5">
-                              <div className="flex items-center justify-between">
-                                <label className="text-xs font-bold text-subtle uppercase">
-                                  Nomor identitas (NIK / Paspor)
-                                </label>
-                                <span className="text-[11px] font-semibold text-subtle tabular-nums">
-                                  {p.id_number.length} karakter
-                                </span>
-                              </div>
-                              <div className="relative flex items-center">
-                                <span className="material-symbols-outlined absolute left-3.5 text-subtle text-[20px] pointer-events-none">
-                                  badge
-                                </span>
-                                <input
-                                  type="text"
-                                  required
-                                  value={p.id_number}
-                                  onChange={(e) =>
-                                    updatePassenger(idx, { id_number: e.target.value.replace(/\s+/g, '') })
-                                  }
-                                  placeholder="16 digit NIK atau nomor paspor"
-                                  className="w-full h-11 pl-11 pr-10 bg-panel border border-line rounded-control text-ink text-sm tracking-wide focus:outline-none focus:ring-2 focus:ring-brand-fg font-medium transition-all"
-                                />
-                                {p.id_number.length >= 16 && (
-                                  <span className="material-symbols-outlined absolute right-3.5 text-emerald-500 text-[18px]">
-                                    verified
+                            {/* Identity Document NIK / Passport */}
+                            {(() => {
+                              const idValidation = validateIdentityNumber(p.id_number)
+
+                              return (
+                                <div className="flex flex-col gap-1.5">
+                                  <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold text-subtle uppercase">
+                                      Nomor identitas (NIK KTP / Paspor)
+                                    </label>
+                                    {p.id_number ? (
+                                      <span
+                                        className={`text-[11px] font-semibold tabular-nums flex items-center gap-1 ${
+                                          idValidation.valid
+                                            ? 'text-emerald-600 dark:text-emerald-400'
+                                            : 'text-amber-600 dark:text-amber-400'
+                                        }`}
+                                      >
+                                        {idValidation.valid && (
+                                          <span className="material-symbols-outlined text-[14px]">
+                                            check_circle
+                                          </span>
+                                        )}
+                                        <span>{idValidation.message}</span>
+                                      </span>
+                                    ) : (
+                                      <span className="text-[11px] text-danger font-semibold">
+                                        * Wajib diisi (16 digit NIK atau Paspor)
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div className="relative flex items-center">
+                                    <span className="material-symbols-outlined absolute left-3.5 text-subtle text-[20px] pointer-events-none">
+                                      badge
+                                    </span>
+                                    <input
+                                      type="text"
+                                      required
+                                      maxLength={16}
+                                      value={p.id_number}
+                                      onChange={(e) =>
+                                        updatePassenger(idx, {
+                                          id_number: e.target.value.replace(/\s+/g, '').toUpperCase(),
+                                        })
+                                      }
+                                      placeholder="16 digit NIK KTP atau nomor paspor resmi"
+                                      className={`w-full h-11 pl-11 pr-10 bg-panel border rounded-control text-ink text-sm tracking-wide focus:outline-none focus:ring-2 font-medium transition-all ${
+                                        p.id_number
+                                          ? idValidation.valid
+                                            ? 'border-emerald-500/50 focus:ring-emerald-500/30'
+                                            : 'border-amber-500/50 focus:ring-amber-500/30'
+                                          : 'border-line focus:ring-brand-fg'
+                                      }`}
+                                    />
+                                    {idValidation.valid && (
+                                      <span className="material-symbols-outlined absolute right-3.5 text-emerald-500 text-[18px]">
+                                        verified
+                                      </span>
+                                    )}
+                                  </div>
+                                  <span className="text-[11px] text-subtle">
+                                    WNI wajib menggunakan NIK KTP (16 digit angka). WNA dapat menggunakan nomor paspor resmi.
                                   </span>
-                                )}
-                              </div>
-                            </div>
+                                </div>
+                              )
+                            })()}
 
                             {/* Birth Date & Gender */}
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              <div className="flex flex-col gap-1.5">
-                                <label className="text-xs font-bold text-subtle uppercase">
-                                  Tanggal lahir
-                                </label>
-                                <input
-                                  type="date"
-                                  required
-                                  value={p.birth_date}
-                                  onChange={(e) =>
-                                    updatePassenger(idx, { birth_date: e.target.value })
-                                  }
-                                  className="w-full h-11 px-3 bg-panel border border-line rounded-control text-ink text-sm focus:outline-none focus:ring-2 focus:ring-brand-fg"
-                                />
-                              </div>
+                            {(() => {
+                              const ageInfo = calculatePassengerAge(p.birth_date)
 
-                              <div className="flex flex-col gap-1.5">
-                                <label className="text-xs font-bold text-subtle uppercase">
-                                  Jenis kelamin
-                                </label>
-                                <div className="grid grid-cols-2 p-1 bg-panel border border-line rounded-control gap-1">
-                                  <button
-                                    type="button"
-                                    onClick={() => updatePassenger(idx, { gender: 'male' })}
-                                    className={`py-2 text-xs font-bold rounded transition-all ${
-                                      p.gender === 'male'
-                                        ? 'bg-brand text-white shadow-2xs'
-                                        : 'text-subtle hover:text-ink'
-                                    }`}
-                                  >
-                                    Laki-laki
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => updatePassenger(idx, { gender: 'female' })}
-                                    className={`py-2 text-xs font-bold rounded transition-all ${
-                                      p.gender === 'female'
-                                        ? 'bg-brand text-white shadow-2xs'
-                                        : 'text-subtle hover:text-ink'
-                                    }`}
-                                  >
-                                    Perempuan
-                                  </button>
+                              return (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                                  <div className="flex flex-col gap-1.5">
+                                    <div className="flex items-center justify-between">
+                                      <label className="text-xs font-bold text-subtle uppercase">
+                                        Tanggal lahir
+                                      </label>
+                                      {ageInfo.isValid && ageInfo.age !== null ? (
+                                        <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20 tabular-nums">
+                                          Usia: {ageInfo.age} thn ({ageInfo.category})
+                                        </span>
+                                      ) : ageInfo.error ? (
+                                        <span className="text-[11px] font-semibold text-danger">
+                                          {ageInfo.error}
+                                        </span>
+                                      ) : (
+                                        <span className="text-[11px] text-danger font-semibold">
+                                          * Wajib diisi
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="relative flex items-center">
+                                      <input
+                                        type="date"
+                                        required
+                                        max={new Date().toISOString().split('T')[0]}
+                                        value={p.birth_date}
+                                        onChange={(e) =>
+                                          updatePassenger(idx, { birth_date: e.target.value })
+                                        }
+                                        className={`w-full h-11 px-3 bg-panel border rounded-control text-ink text-sm focus:outline-none focus:ring-2 ${
+                                          ageInfo.isValid
+                                            ? 'border-emerald-500/50 focus:ring-emerald-500/30'
+                                            : 'border-line focus:ring-brand-fg'
+                                        }`}
+                                      />
+                                    </div>
+                                    <span className="text-[11px] text-subtle">
+                                      {ageInfo.isValid && ageInfo.age !== null
+                                        ? `Usia terhitung: ${ageInfo.age} tahun per tanggal hari ini.`
+                                        : 'Pilih tanggal lahir untuk kalkulasi usia otomatis.'}
+                                    </span>
+                                  </div>
+
+                                  <div className="flex flex-col gap-1.5">
+                                    <label className="text-xs font-bold text-subtle uppercase">
+                                      Jenis kelamin
+                                    </label>
+                                    <div className="grid grid-cols-2 p-1 bg-panel border border-line rounded-control gap-1">
+                                      <button
+                                        type="button"
+                                        onClick={() => updatePassenger(idx, { gender: 'male' })}
+                                        className={`py-2 text-xs font-bold rounded transition-all ${
+                                          p.gender === 'male'
+                                            ? 'bg-brand text-white shadow-2xs'
+                                            : 'text-subtle hover:text-ink'
+                                        }`}
+                                      >
+                                        Laki-laki
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => updatePassenger(idx, { gender: 'female' })}
+                                        className={`py-2 text-xs font-bold rounded transition-all ${
+                                          p.gender === 'female'
+                                            ? 'bg-brand text-white shadow-2xs'
+                                            : 'text-subtle hover:text-ink'
+                                        }`}
+                                      >
+                                        Perempuan
+                                      </button>
+                                    </div>
+                                  </div>
                                 </div>
-                              </div>
-                            </div>
+                              )
+                            })()}
                           </div>
                         </div>
                       )
@@ -661,10 +849,24 @@ export default function BookingDetail() {
 
                     <button
                       type="submit"
-                      className="w-full h-12 bg-brand hover:bg-brand-hover text-white rounded-control font-semibold text-sm shadow-sm transition-all flex items-center justify-center gap-2 active:scale-98"
+                      disabled={!allPassengersComplete}
+                      className={`w-full h-12 rounded-control font-semibold text-sm shadow-sm transition-all flex items-center justify-center gap-2 ${
+                        allPassengersComplete
+                          ? 'bg-brand hover:bg-brand-hover text-white active:scale-98 cursor-pointer'
+                          : 'bg-panel border border-line text-subtle cursor-not-allowed opacity-60'
+                      }`}
                     >
-                      <span>Lanjut pilih kursi & bagasi</span>
-                      <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                      {allPassengersComplete ? (
+                        <>
+                          <span>Lanjut pilih kursi & bagasi</span>
+                          <span className="material-symbols-outlined text-[18px]">arrow_forward</span>
+                        </>
+                      ) : (
+                        <>
+                          <span className="material-symbols-outlined text-[18px]">lock</span>
+                          <span>Lengkapi NIK / Paspor & Data Penumpang untuk Lanjut</span>
+                        </>
+                      )}
                     </button>
                   </form>
                 </div>
@@ -863,13 +1065,22 @@ export default function BookingDetail() {
                   <button
                     type="button"
                     onClick={handleCreateBooking}
-                    disabled={bookingSubmitting}
-                    className="w-full h-12 bg-brand hover:bg-brand-hover text-white rounded-control font-semibold text-sm shadow-md transition-all flex items-center justify-center gap-2 active:scale-98"
+                    disabled={bookingSubmitting || !allPassengersComplete}
+                    className={`w-full h-12 rounded-control font-semibold text-sm shadow-md transition-all flex items-center justify-center gap-2 ${
+                      allPassengersComplete && !bookingSubmitting
+                        ? 'bg-brand hover:bg-brand-hover text-white active:scale-98 cursor-pointer'
+                        : 'bg-panel border border-line text-subtle cursor-not-allowed opacity-60'
+                    }`}
                   >
                     {bookingSubmitting ? (
                       <>
                         <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
                         <span>Mengunci kursi & membuat pesanan...</span>
+                      </>
+                    ) : !allPassengersComplete ? (
+                      <>
+                        <span className="material-symbols-outlined text-[18px]">lock</span>
+                        <span>Lengkapi Data Penumpang di Langkah 1</span>
                       </>
                     ) : (
                       <>

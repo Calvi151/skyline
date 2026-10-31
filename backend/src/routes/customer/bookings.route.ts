@@ -14,6 +14,7 @@ import {
   airplanes,
   payments,
   refunds,
+  checkIns,
 } from '../../db/schema.js'
 import { authMiddleware, requireVerifiedEmail } from '../../middleware/auth.middleware.js'
 import { pdfService } from '../../services/pdf.service.js'
@@ -42,9 +43,26 @@ function generatePnr(): string {
 }
 
 const passengerSchema = z.object({
-  full_name: z.string().min(2, 'Nama penumpang minimal 2 karakter').max(100),
-  id_number: z.string().min(4, 'Nomor identitas minimal 4 karakter').max(50),
-  birth_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Format tanggal lahir YYYY-MM-DD'),
+  full_name: z.string().trim().min(2, 'Nama penumpang minimal 2 karakter').max(100),
+  id_number: z
+    .string()
+    .trim()
+    .min(6, 'Nomor identitas minimal 6 karakter (NIK 16 digit atau nomor paspor)')
+    .max(50, 'Nomor identitas maksimal 50 karakter')
+    .refine((val) => {
+      const clean = val.replace(/\s+/g, '')
+      if (/^\d+$/.test(clean)) {
+        return clean.length >= 6 && clean.length <= 20
+      }
+      return /^[A-Za-z0-9]{6,16}$/.test(clean)
+    }, 'Format nomor identitas harus berupa NIK angka atau nomor paspor resmi'),
+  birth_date: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/, 'Format tanggal lahir YYYY-MM-DD')
+    .refine((val) => {
+      const d = new Date(val)
+      return !isNaN(d.getTime()) && d <= new Date()
+    }, 'Tanggal lahir tidak boleh di masa depan'),
   gender: z.enum(['male', 'female']),
   seat_class: z.enum(['economy', 'business']),
   seat_id: z.number().int().positive('Seat ID wajib diisi'),
@@ -478,18 +496,22 @@ bookingsRoute.get('/:id', async (c) => {
 
   const seatIds = passRows.map((p) => p.seatId!).filter(Boolean)
   const baggageIds = passRows.map((p) => p.baggageOptionId!).filter(Boolean)
+  const paxIds = passRows.map((p) => p.id)
 
-  const [seatRows, baggageRows] = await Promise.all([
+  const [seatRows, baggageRows, checkInRows] = await Promise.all([
     seatIds.length > 0 ? db.select().from(seats).where(inArray(seats.id, seatIds)) : [],
     baggageIds.length > 0 ? db.select().from(baggageOptions).where(inArray(baggageOptions.id, baggageIds)) : [],
+    paxIds.length > 0 ? db.select().from(checkIns).where(inArray(checkIns.bookingPassengerId, paxIds)) : [],
   ])
 
   const seatMap = new Map(seatRows.map((s) => [s.id, s]))
   const baggageMap = new Map(baggageRows.map((b) => [b.id, b]))
+  const checkInMap = new Map(checkInRows.map((ci) => [ci.bookingPassengerId!, ci]))
 
   const enrichedPassengers = passRows.map((p) => {
     const seat = p.seatId ? seatMap.get(p.seatId) : null
     const baggage = p.baggageOptionId ? baggageMap.get(p.baggageOptionId) : null
+    const ci = checkInMap.get(p.id)
     return {
       id: p.id,
       full_name: p.fullName,
@@ -498,6 +520,9 @@ bookingsRoute.get('/:id', async (c) => {
       gender: p.gender,
       seat_class: p.seatClass,
       seat_number: seat?.seatNumber || null,
+      boarding_pass_code: ci?.boardingPassCode || null,
+      is_checked_in: !!ci,
+      check_in_status: ci?.status || null,
       baggage_option: baggage
         ? { id: baggage.id, name: baggage.name, weight_kg: baggage.weightKg, price: Number(baggage.price) }
         : null,

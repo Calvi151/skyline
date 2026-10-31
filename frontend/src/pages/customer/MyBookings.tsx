@@ -4,6 +4,7 @@ import Navbar from '../../components/layout/Navbar'
 import Footer from '../../components/layout/Footer'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/authStore'
+import { AirlineLogo } from '../../components/common/AirlineLogo'
 
 interface BookingItem {
   id: number
@@ -390,9 +391,12 @@ export default function MyBookings() {
                           <div className="flex items-center gap-2.5">
                             {/* Airline Brand Tag */}
                             <div className="flex items-center gap-1.5 px-2.5 py-1 bg-panel border border-line rounded-control shadow-2xs">
-                              <span className="material-symbols-outlined text-[16px] text-brand-fg">
-                                airlines
-                              </span>
+                              <AirlineLogo
+                                code={flight?.airline?.code}
+                                name={flight?.airline?.name}
+                                logo={flight?.airline?.logo}
+                                size="xs"
+                              />
                               <span className="font-bold text-xs uppercase tracking-wider text-ink">
                                 {flight?.airline?.name || 'SkyBook Air'}
                               </span>

@@ -591,10 +591,13 @@ checkinRoute.get('/:bookingId/boarding-pass', optionalAuthMiddleware, async (c) 
     .where(eq(flightSchedules.id, booking.flightScheduleId!))
     .limit(1)
 
-  const [allAirports, [airline]] = await Promise.all([
+  const [allAirports, [airline], [airplane]] = await Promise.all([
     db.select().from(airports),
     schedule?.airlineId
       ? db.select().from(airlines).where(eq(airlines.id, schedule.airlineId)).limit(1)
+      : [null],
+    schedule?.airplaneId
+      ? db.select().from(airplanes).where(eq(airplanes.id, schedule.airplaneId)).limit(1)
       : [null],
   ])
   const airportMap = new Map(allAirports.map((a) => [a.id, a]))
@@ -645,6 +648,8 @@ checkinRoute.get('/:bookingId/boarding-pass', optionalAuthMiddleware, async (c) 
       destCity: destAirport?.city || 'Dest City',
       destName: destAirport?.name || 'Dest Airport',
       departureTime: firstSeg ? firstSeg.departureTime.toISOString() : new Date().toISOString(),
+      arrivalTime: lastSeg ? lastSeg.arrivalTime.toISOString() : undefined,
+      airplaneModel: airplane?.model || 'Boeing 737-800',
       boardingTime,
       gate: '3A',
       sequenceNumber: 1,
