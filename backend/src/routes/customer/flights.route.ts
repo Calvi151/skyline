@@ -9,6 +9,7 @@ import {
   airplanes,
   seats,
 } from '../../db/schema.js'
+import { ensureAirportInDb, generateSchedulesForRoute } from '../../services/flight-generator.service.js'
 
 const customerFlightsRoute = new Hono()
 
@@ -28,32 +29,8 @@ async function resolveAirport(query: string) {
   const clean = query.trim()
   if (!clean) return null
 
-  // 1. Kode IATA persis (prioritas utama)
-  const [byCode] = await db
-    .select()
-    .from(airports)
-    .where(eq(airports.code, clean.toUpperCase()))
-    .limit(1)
-  if (byCode) return byCode
-
-  // Input pendek (<= 3 huruf) dianggap kode IATA; jangan dicocokkan ke nama kota
-  // agar misal "US" tidak salah terarah ke kota "Gusap".
-  if (clean.length <= 3) return null
-
-  // 2. Nama kota persis, lalu awalan nama kota
-  const [byCityExact] = await db
-    .select()
-    .from(airports)
-    .where(ilike(airports.city, clean))
-    .limit(1)
-  if (byCityExact) return byCityExact
-
-  const [byCityPrefix] = await db
-    .select()
-    .from(airports)
-    .where(ilike(airports.city, `${clean}%`))
-    .limit(1)
-  return byCityPrefix || null
+  // Resolves against database + global airports dictionary (including Tokyo HND/NRT, Seoul, London, etc.)
+  return await ensureAirportInDb(clean)
 }
 
 /**
@@ -231,6 +208,58 @@ customerFlightsRoute.get('/search', async (c) => {
       totalDuration,
       layoverWarning,
     })
+  }
+
+  if (matchedSchedules.length === 0) {
+    // Generate realistic flight schedules for international routes or dates without pre-existing flights
+    const generatedIds = await generateSchedulesForRoute(originAirport, destAirport, targetDatePrefix)
+    if (generatedIds.length > 0) {
+      const newSchedules = await db
+        .select({
+          id: flightSchedules.id,
+          flightNumber: flightSchedules.flightNumber,
+          airlineId: flightSchedules.airlineId,
+          airplaneId: flightSchedules.airplaneId,
+          flightType: flightSchedules.flightType,
+          priceEconomy: flightSchedules.priceEconomy,
+          priceBusiness: flightSchedules.priceBusiness,
+          status: flightSchedules.status,
+          delayMinutes: flightSchedules.delayMinutes,
+          statusSyncedAt: flightSchedules.statusSyncedAt,
+          source: flightSchedules.source,
+        })
+        .from(flightSchedules)
+        .where(inArray(flightSchedules.id, generatedIds))
+
+      const newSegments = await db
+        .select()
+        .from(flightSegments)
+        .where(inArray(flightSegments.flightScheduleId, generatedIds))
+        .orderBy(asc(flightSegments.segmentOrder))
+
+      for (const sched of newSchedules) {
+        if (flightTypeParam && ['direct', 'transit'].includes(flightTypeParam)) {
+          if (sched.flightType !== flightTypeParam) continue
+        }
+
+        const segs = newSegments.filter((s) => s.flightScheduleId === sched.id)
+        if (segs.length === 0) continue
+        const firstSeg = segs[0]
+        const lastSeg = segs[segs.length - 1]
+        const depTime = new Date(firstSeg.departureTime).getTime()
+        const arrTime = new Date(lastSeg.arrivalTime).getTime()
+        const totalDuration = Math.max(Math.round((arrTime - depTime) / (1000 * 60)), 30)
+
+        matchedSchedules.push({
+          schedule: sched,
+          segments: segs,
+          firstSegment: firstSeg,
+          lastSegment: lastSeg,
+          totalDuration,
+          layoverWarning: null,
+        })
+      }
+    }
   }
 
   if (matchedSchedules.length === 0) {
@@ -445,7 +474,7 @@ customerFlightsRoute.get('/price-calendar', async (c) => {
     )
   }
 
-  // Construct day window around anchor date
+  // Construct day window around anchor date - hari sebelumnya dihilangkan (min date adalah hari ini)
   const anchor = new Date(dateParam)
   if (isNaN(anchor.getTime())) {
     return c.json(
@@ -458,12 +487,26 @@ customerFlightsRoute.get('/price-calendar', async (c) => {
     )
   }
 
-  const halfWindow = Math.floor(daysParam / 2)
-  const calendarDates: string[] = []
+  const todayStr = new Date().toISOString().slice(0, 10)
+  const todayTime = new Date(todayStr + 'T00:00:00').getTime()
+  const anchorTime = new Date(dateParam + 'T00:00:00').getTime()
 
-  for (let i = -halfWindow; i <= halfWindow; i++) {
-    const d = new Date(anchor)
-    d.setDate(anchor.getDate() + i)
+  // Anchor tidak boleh di masa lalu
+  const validAnchorTime = Math.max(anchorTime, todayTime)
+  const anchorDate = new Date(validAnchorTime)
+
+  const halfWindow = Math.floor(daysParam / 2)
+  const candidateStartDate = new Date(anchorDate)
+  candidateStartDate.setDate(candidateStartDate.getDate() - halfWindow)
+
+  // Hari di masa lalu sebelum hari ini dihilangkan
+  const effectiveStartDate =
+    candidateStartDate.getTime() < todayTime ? new Date(todayTime) : candidateStartDate
+
+  const calendarDates: string[] = []
+  for (let i = 0; i < daysParam; i++) {
+    const d = new Date(effectiveStartDate)
+    d.setDate(effectiveStartDate.getDate() + i)
     calendarDates.push(d.toISOString().slice(0, 10))
   }
 

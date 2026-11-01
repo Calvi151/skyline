@@ -7,6 +7,7 @@ import {
   flightSchedules,
   flightSegments,
 } from '../db/schema.js'
+import { GLOBAL_AIRPORTS_DATA } from '../db/global-airports.js'
 
 const publicRoute = new Hono()
 
@@ -14,9 +15,9 @@ const publicRoute = new Hono()
 publicRoute.get('/airports', async (c) => {
   const q = c.req.query('q')?.trim()
 
-  let result
+  let result: any[] = []
   if (q) {
-    result = await db
+    const dbRows = await db
       .select({
         id: airports.id,
         code: airports.code,
@@ -35,8 +36,35 @@ publicRoute.get('/airports', async (c) => {
         ),
       )
       .orderBy(asc(airports.city))
+
+    result = [...dbRows]
+    const existingCodes = new Set(result.map((r) => r.code))
+    const qLower = q.toLowerCase()
+
+    for (const g of GLOBAL_AIRPORTS_DATA) {
+      if (!existingCodes.has(g.code)) {
+        const match =
+          g.code.toLowerCase().includes(qLower) ||
+          g.city.toLowerCase().includes(qLower) ||
+          g.name.toLowerCase().includes(qLower) ||
+          g.country.toLowerCase().includes(qLower) ||
+          g.aliases.some((a) => a.includes(qLower))
+
+        if (match) {
+          result.push({
+            id: 10000 + result.length,
+            code: g.code,
+            name: g.name,
+            city: g.primaryCity || g.city,
+            country: g.country,
+            timezone: g.timezone,
+          })
+          existingCodes.add(g.code)
+        }
+      }
+    }
   } else {
-    result = await db
+    const dbRows = await db
       .select({
         id: airports.id,
         code: airports.code,
@@ -47,6 +75,22 @@ publicRoute.get('/airports', async (c) => {
       })
       .from(airports)
       .orderBy(asc(airports.city))
+
+    result = [...dbRows]
+    const existingCodes = new Set(result.map((r) => r.code))
+    for (const g of GLOBAL_AIRPORTS_DATA) {
+      if (!existingCodes.has(g.code)) {
+        result.push({
+          id: 10000 + result.length,
+          code: g.code,
+          name: g.name,
+          city: g.primaryCity || g.city,
+          country: g.country,
+          timezone: g.timezone,
+        })
+        existingCodes.add(g.code)
+      }
+    }
   }
 
   return c.json({

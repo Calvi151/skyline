@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import AdminLayout from '../layout/AdminLayout'
 import { api } from '../../lib/api'
+import Pagination from '../common/Pagination'
 
 export interface ColumnDef<T> {
   key: keyof T | string
@@ -79,7 +80,7 @@ export default function DataTablePage<T extends { id: number | string }>({
   const [sortField, setSortField] = useState<string | null>(null)
   const [sortDirection, setSortDirection] = useState<'asc' | 'desc'>('asc')
   const [currentPage, setCurrentPage] = useState(1)
-  const pageSize = 8
+  const [pageSize, setPageSize] = useState(8)
 
   // ─── Modal Form State (Create / Edit) ───
   const [isModalOpen, setIsModalOpen] = useState(false)
@@ -171,7 +172,6 @@ export default function DataTablePage<T extends { id: number | string }>({
   }, [data, searchQuery, activeTab, filterTabs, sortField, sortDirection])
 
   // Pagination Slice
-  const totalPages = Math.max(1, Math.ceil(filteredData.length / pageSize))
   const paginatedData = useMemo(() => {
     const start = (currentPage - 1) * pageSize
     return filteredData.slice(start, start + pageSize)
@@ -661,62 +661,18 @@ export default function DataTablePage<T extends { id: number | string }>({
           </div>
 
           {/* ─── PAGINATION FOOTER ─── */}
-          <div className="bg-panel px-6 py-3.5 border-t border-line flex flex-col sm:flex-row items-center justify-between gap-3 text-xs text-subtle">
-            <div>
-              Menampilkan{' '}
-              <span className="font-bold text-ink">
-                {filteredData.length === 0
-                  ? 0
-                  : (currentPage - 1) * pageSize + 1}
-                -
-                {Math.min(currentPage * pageSize, filteredData.length)}
-              </span>{' '}
-              dari <span className="font-bold text-ink">{filteredData.length}</span> {title.toLowerCase()}
-              {selectedIds.length > 0 && (
-                <span className="ml-2 px-2 py-0.5 rounded bg-tint text-brand-fg font-semibold">
-                  {selectedIds.length} baris terpilih
-                </span>
-              )}
-            </div>
-
-            <div className="flex items-center gap-1 select-none">
-              <button
-                type="button"
-                disabled={currentPage <= 1}
-                onClick={() => setCurrentPage((p) => p - 1)}
-                className="w-8 h-8 rounded-control border border-line flex items-center justify-center text-subtle hover:text-ink hover:bg-page transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <span className="material-symbols-outlined text-[16px]">chevron_left</span>
-              </button>
-
-              {Array.from({ length: totalPages }).map((_, idx) => {
-                const pageNum = idx + 1
-                return (
-                  <button
-                    key={pageNum}
-                    type="button"
-                    onClick={() => setCurrentPage(pageNum)}
-                    className={`w-8 h-8 rounded-control text-xs font-semibold transition-all ${
-                      currentPage === pageNum
-                        ? 'bg-brand text-white shadow-xs'
-                        : 'border border-line hover:bg-page text-subtle hover:text-ink'
-                    }`}
-                  >
-                    {pageNum}
-                  </button>
-                )
-              })}
-
-              <button
-                type="button"
-                disabled={currentPage >= totalPages}
-                onClick={() => setCurrentPage((p) => p + 1)}
-                className="w-8 h-8 rounded-control border border-line flex items-center justify-center text-subtle hover:text-ink hover:bg-page transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-              >
-                <span className="material-symbols-outlined text-[16px]">chevron_right</span>
-              </button>
-            </div>
-          </div>
+          <Pagination
+            currentPage={currentPage}
+            totalItems={filteredData.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={(newSize) => {
+              setPageSize(newSize)
+              setCurrentPage(1)
+            }}
+            pageSizeOptions={[8, 16, 24, 50]}
+            itemLabel={title.toLowerCase()}
+          />
         </div>
       </div>
 

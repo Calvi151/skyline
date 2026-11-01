@@ -2,6 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import AdminLayout from '../../components/layout/AdminLayout'
 import { api } from '../../lib/api'
+import Pagination, { CompactPagination } from '../../components/common/Pagination'
 
 export interface AirportInfo {
   id: number
@@ -190,6 +191,10 @@ export default function FlightsPage() {
   const [selectedIds, setSelectedIds] = useState<number[]>([])
   const [activeMenuId, setActiveMenuId] = useState<number | null>(null)
 
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(25)
+
   // Status Change Dialog State
   const [statusModalFlight, setStatusModalFlight] = useState<FlightScheduleItem | null>(null)
   const [statusFormState, setStatusFormState] = useState<{
@@ -302,12 +307,37 @@ export default function FlightsPage() {
     })
   }, [flights, searchTerm, selectedAirline, selectedType, selectedStatus, selectedDate])
 
-  // Select all handler
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [searchTerm, selectedAirline, selectedType, selectedStatus, selectedDate])
+
+  // Pagination Slice
+  const paginatedFlights = useMemo(() => {
+    const start = (currentPage - 1) * pageSize
+    return filteredFlights.slice(start, start + pageSize)
+  }, [filteredFlights, currentPage, pageSize])
+
+  const handlePageChange = (page: number) => {
+    setCurrentPage(page)
+    const el = document.getElementById('flights-table-container')
+    if (el && window.scrollY > el.offsetTop) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    }
+  }
+
+  // Select all on current page handler
+  const isCurrentPageAllSelected =
+    paginatedFlights.length > 0 &&
+    paginatedFlights.every((f) => selectedIds.includes(f.id))
+
   const handleSelectAll = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.checked) {
-      setSelectedIds(filteredFlights.map((f) => f.id))
+      const pageIds = paginatedFlights.map((f) => f.id)
+      setSelectedIds((prev) => Array.from(new Set([...prev, ...pageIds])))
     } else {
-      setSelectedIds([])
+      const pageIds = new Set(paginatedFlights.map((f) => f.id))
+      setSelectedIds((prev) => prev.filter((id) => !pageIds.has(id)))
     }
   }
 
@@ -624,13 +654,22 @@ export default function FlightsPage() {
         {/* ─── 3. Batch Action Bar (Active Row Selection) ─── */}
         {selectedIds.length > 0 && (
           <section className="bg-tint border border-brand-fg/30 rounded-ticket px-4 py-3 flex flex-col sm:flex-row items-center justify-between gap-3 animate-in fade-in duration-200">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <div className="w-6 h-6 rounded bg-brand text-white flex items-center justify-center font-bold text-xs">
                 {selectedIds.length}
               </div>
               <span className="text-sm font-semibold text-brand-fg">
-                {selectedIds.length} penerbangan dipilih dari daftar
+                {selectedIds.length} penerbangan dipilih
               </span>
+              {selectedIds.length < filteredFlights.length && (
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds(filteredFlights.map((f) => f.id))}
+                  className="text-xs text-brand font-bold underline hover:text-brand-hover transition-colors"
+                >
+                  Pilih semua ({filteredFlights.length.toLocaleString('id-ID')})
+                </button>
+              )}
             </div>
             <div className="flex items-center gap-2">
               <button
@@ -654,18 +693,32 @@ export default function FlightsPage() {
         )}
 
         {/* ─── 4. Flight Manifest Table ─── */}
-        <section className="bg-panel border border-line rounded-ticket shadow-sm overflow-visible relative">
-          <div className="overflow-x-auto">
+        <section id="flights-table-container" className="bg-panel border border-line rounded-ticket shadow-sm overflow-hidden relative">
+          {/* Table Sub-header toolbar: Showing count & Compact Pagination */}
+          <div className="px-5 py-3 border-b border-line bg-page/35 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-xs">
+              <span className="font-bold text-ink">Daftar Jadwal Penerbangan</span>
+              <span className="px-2 py-0.5 rounded-full bg-tint text-brand-fg text-[11px] font-bold">
+                {filteredFlights.length.toLocaleString('id-ID')} Total
+              </span>
+            </div>
+            <CompactPagination
+              currentPage={currentPage}
+              totalItems={filteredFlights.length}
+              pageSize={pageSize}
+              onPageChange={handlePageChange}
+              itemLabel="penerbangan"
+            />
+          </div>
+
+          <div className="overflow-x-auto max-h-[720px] overflow-y-auto">
             <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="bg-page/70 text-subtle text-[11px] font-bold uppercase tracking-wider border-b border-line">
+              <thead className="sticky top-0 z-10 bg-raised shadow-xs">
+                <tr className="bg-page/95 backdrop-blur-xs text-subtle text-[11px] font-bold uppercase tracking-wider border-b border-line">
                   <th className="py-3.5 px-4 w-12 text-center" scope="col">
                     <input
                       type="checkbox"
-                      checked={
-                        filteredFlights.length > 0 &&
-                        filteredFlights.every((f) => selectedIds.includes(f.id))
-                      }
+                      checked={isCurrentPageAllSelected}
                       onChange={handleSelectAll}
                       className="w-4 h-4 rounded text-brand accent-brand cursor-pointer"
                     />
@@ -725,7 +778,7 @@ export default function FlightsPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredFlights.map((flight) => {
+                  paginatedFlights.map((flight) => {
                     const isSelected = selectedIds.includes(flight.id)
                     const firstSeg = flight.segments[0]
                     const lastSeg = flight.segments[flight.segments.length - 1]
@@ -947,6 +1000,20 @@ export default function FlightsPage() {
               </tbody>
             </table>
           </div>
+
+          {/* ─── Pagination Footer ─── */}
+          <Pagination
+            currentPage={currentPage}
+            totalItems={filteredFlights.length}
+            pageSize={pageSize}
+            onPageChange={handlePageChange}
+            onPageSizeChange={(newSize) => {
+              setPageSize(newSize)
+              setCurrentPage(1)
+            }}
+            pageSizeOptions={[10, 25, 50, 100]}
+            itemLabel="jadwal penerbangan"
+          />
         </section>
 
         {/* ─── 5. Dialog: Ubah Status Operasional (Revisi Data Real: ADM-10 & NTF-01) ─── */}

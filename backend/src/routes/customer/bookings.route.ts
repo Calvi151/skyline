@@ -72,6 +72,8 @@ const passengerSchema = z.object({
 const createBookingSchema = z.object({
   flight_schedule_id: z.number().int().positive('ID jadwal penerbangan wajib diisi'),
   passengers: z.array(passengerSchema).min(1, 'Minimal 1 penumpang').max(9, 'Maksimal 9 penumpang sekaligus'),
+  promo_code: z.string().optional().nullable(),
+  discount_amount: z.number().min(0).optional().nullable(),
 })
 
 /**
@@ -230,6 +232,10 @@ bookingsRoute.post('/', requireVerifiedEmail, async (c) => {
       const now = new Date()
       const expiresAt = new Date(now.getTime() + 60 * 60 * 1000) // 1 jam countdown batas bayar
 
+      // Apply discount (group discount or promo voucher) if present
+      const discount = Math.max(0, Math.min(Number(parsed.data.discount_amount || 0), calculatedTotal * 0.7))
+      const finalTotalPrice = Math.max(0, calculatedTotal - discount)
+
       // Insert booking record
       const [newBooking] = await tx
         .insert(bookings)
@@ -237,7 +243,7 @@ bookingsRoute.post('/', requireVerifiedEmail, async (c) => {
           bookingCode: pnr,
           userId,
           flightScheduleId: flight_schedule_id,
-          totalPrice: calculatedTotal.toString(),
+          totalPrice: finalTotalPrice.toString(),
           status: 'pending',
           bookingDate: now,
           createdAt: now,

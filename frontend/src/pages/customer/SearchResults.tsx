@@ -5,6 +5,14 @@ import Footer from '../../components/layout/Footer'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/authStore'
 import { AirlineLogo } from '../../components/common/AirlineLogo'
+import {
+  AirportItem,
+  POPULAR_AIRPORTS,
+  searchAirports,
+  getAirportByCode,
+  getPrimaryCity,
+  getCityName,
+} from '../../lib/airports'
 
 export interface FlightSegment {
   id: number
@@ -45,13 +53,53 @@ export default function SearchResults() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
 
-  // Query parameters from URL
-  const origin = searchParams.get('origin') || 'CGK'
-  const destination = searchParams.get('destination') || 'DPS'
-  const date = searchParams.get('date') || new Date().toISOString().slice(0, 10)
+  // Query parameters from URL with alias resolution (e.g. 'JAK' / 'Jakarta' -> 'CGK')
+  const rawOrigin = searchParams.get('origin') || 'CGK'
+  const rawDestination = searchParams.get('destination') || 'DPS'
+  const resolvedOriginAirport = useMemo(
+    () => getAirportByCode(rawOrigin) || POPULAR_AIRPORTS[0],
+    [rawOrigin]
+  )
+  const resolvedDestAirport = useMemo(
+    () => getAirportByCode(rawDestination) || POPULAR_AIRPORTS[1],
+    [rawDestination]
+  )
+  const origin = resolvedOriginAirport.code
+  const destination = resolvedDestAirport.code
+  const todayStr = useMemo(() => new Date().toLocaleDateString('en-CA'), [])
+  const rawDate = searchParams.get('date')
+  // Default adalah hari ini dan tanggal di masa lalu dihilangkan
+  const date = rawDate && rawDate >= todayStr ? rawDate : todayStr
+  const rawReturnDate = searchParams.get('returnDate') || ''
+  const returnDate =
+    rawReturnDate && rawReturnDate >= date ? rawReturnDate : rawReturnDate ? date : ''
+  const isRoundtrip = searchParams.get('trip') === 'roundtrip'
   const passengers = Math.max(1, Number(searchParams.get('passengers') || 1))
   const cabinClass = (searchParams.get('class') || 'economy') as 'economy' | 'business'
   const sort = searchParams.get('sort') || 'price'
+  const isGroup = searchParams.get('group') === 'true' || passengers >= 2
+  const groupDiscount = passengers >= 5 ? 15 : passengers >= 3 ? 10 : passengers >= 2 ? 5 : 0
+
+  // Koreksi URL otomatis jika tanggal sebelumnya masih tersimpan di query string
+  useEffect(() => {
+    if (rawDate && rawDate < todayStr) {
+      const next = new URLSearchParams(searchParams)
+      next.set('date', todayStr)
+      if (rawReturnDate && rawReturnDate < todayStr) {
+        next.set('returnDate', todayStr)
+      }
+      setSearchParams(next, { replace: true })
+    }
+  }, [rawDate, rawReturnDate, todayStr, searchParams, setSearchParams])
+
+  // Two-step round-trip flow state
+  const [roundTripStep, setRoundTripStep] = useState<'outbound' | 'inbound'>('outbound')
+  const [selectedOutbound, setSelectedOutbound] = useState<FlightResultItem | null>(null)
+
+  // Active flight parameters based on round-trip step
+  const activeOrigin = isRoundtrip && roundTripStep === 'inbound' ? destination : origin
+  const activeDestination = isRoundtrip && roundTripStep === 'inbound' ? origin : destination
+  const activeDate = isRoundtrip && roundTripStep === 'inbound' ? (returnDate || date) : date
 
   // Data fetching state
   const [flights, setFlights] = useState<FlightResultItem[]>([])
@@ -65,11 +113,77 @@ export default function SearchResults() {
 
   // Inline search edit open state
   const [isEditSearchOpen, setIsEditSearchOpen] = useState(false)
-  const [editOrigin, setEditOrigin] = useState(origin)
-  const [editDestination, setEditDestination] = useState(destination)
+  const [editTripType, setEditTripType] = useState<'oneway' | 'roundtrip' | 'group'>(
+    isRoundtrip ? 'roundtrip' : isGroup ? 'group' : 'oneway'
+  )
+  const [editOriginAirport, setEditOriginAirport] = useState<AirportItem>(resolvedOriginAirport)
+  const [editDestAirport, setEditDestAirport] = useState<AirportItem>(resolvedDestAirport)
   const [editDate, setEditDate] = useState(date)
+  const [editReturnDate, setEditReturnDate] = useState(returnDate || date)
   const [editPassengers, setEditPassengers] = useState(passengers)
   const [editClass, setEditClass] = useState(cabinClass)
+
+  // Autocomplete dropdown state for search edit
+  const [activeAirportDropdown, setActiveAirportDropdown] = useState<'origin' | 'destination' | null>(null)
+  const [citySearchQuery, setCitySearchQuery] = useState('')
+  const editDrawerRef = useRef<HTMLDivElement>(null)
+
+  // Search keyword filter in sidebar
+  const [searchKeyword, setSearchKeyword] = useState('')
+
+  // Sync edit form with current URL parameters
+  useEffect(() => {
+    setEditOriginAirport(resolvedOriginAirport)
+    setEditDestAirport(resolvedDestAirport)
+    setEditDate(date)
+    setEditReturnDate(returnDate || date)
+    setEditPassengers(passengers)
+    setEditClass(cabinClass)
+    setEditTripType(isRoundtrip ? 'roundtrip' : isGroup ? 'group' : 'oneway')
+  }, [resolvedOriginAirport, resolvedDestAirport, date, returnDate, passengers, cabinClass, isRoundtrip, isGroup])
+
+  // Close dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (editDrawerRef.current && !editDrawerRef.current.contains(e.target as Node)) {
+        setActiveAirportDropdown(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside)
+    return () => document.removeEventListener('mousedown', handleClickOutside)
+  }, [])
+
+  // Live API search to supplement local comprehensive global list
+  const [apiAirports, setApiAirports] = useState<AirportItem[]>([])
+  useEffect(() => {
+    const q = citySearchQuery.trim()
+    if (q.length < 2) {
+      setApiAirports([])
+      return
+    }
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.get<{ data: any[] }>(`/airports?q=${encodeURIComponent(q)}`)
+        const items = (res.data?.data || []).map((a: any) => ({
+          code: a.code,
+          city: a.city,
+          primaryCity: a.city,
+          name: a.name,
+          country: a.country || '',
+          aliases: [a.code.toLowerCase(), a.city.toLowerCase()],
+        }))
+        setApiAirports(items)
+      } catch (err) {
+        // ignore
+      }
+    }, 200)
+    return () => clearTimeout(timer)
+  }, [citySearchQuery])
+
+  // City-first airport suggestions (combines local comprehensive global list + live API)
+  const displayedAirports = useMemo(() => {
+    return searchAirports(citySearchQuery, apiAirports)
+  }, [citySearchQuery, apiAirports])
 
   // Client-side filters
   const [filterTypes, setFilterTypes] = useState<string[]>([]) // ['direct', 'transit']
@@ -78,21 +192,20 @@ export default function SearchResults() {
   const [timeWindows, setTimeWindows] = useState<string[]>([]) // 'pagi', 'siang', 'sore', 'malam'
   const [filterBaggageIncluded, setFilterBaggageIncluded] = useState(false)
 
-
   // Sort dropdown open state
   const [isSortDropdownOpen, setIsSortDropdownOpen] = useState(false)
   const sortRef = useRef<HTMLDivElement>(null)
 
-  // Load Flights Search Data
+  // Load Flights Search Data (responds dynamically to round-trip step)
   useEffect(() => {
     const fetchSearchResults = async () => {
       setLoading(true)
       setErrorMsg(null)
       try {
         const queryParams = new URLSearchParams({
-          origin,
-          destination,
-          date,
+          origin: activeOrigin,
+          destination: activeDestination,
+          date: activeDate,
           passengers: String(passengers),
           class: cabinClass,
           sort,
@@ -101,7 +214,7 @@ export default function SearchResults() {
         const [flightsRes, calRes] = await Promise.all([
           api.get<{ data: FlightResultItem[] }>(`/flights/search?${queryParams.toString()}`),
           api.get<{ data: CalendarDay[] }>(
-            `/flights/price-calendar?origin=${origin}&destination=${destination}&date=${date}&passengers=${passengers}&class=${cabinClass}&days=7`
+            `/flights/price-calendar?origin=${activeOrigin}&destination=${activeDestination}&date=${activeDate}&passengers=${passengers}&class=${cabinClass}&days=7`
           ).catch(() => ({ data: [] })),
         ])
 
@@ -111,16 +224,38 @@ export default function SearchResults() {
 
         const rawCal = (calRes?.data as any)?.data || calRes?.data
         if (Array.isArray(rawCal) && rawCal.length > 0) {
-          setCalendarDays(rawCal)
+          // Tanggal sebelum hari ini dihilangkan
+          const validDays = rawCal.filter((cd) => cd.date >= todayStr)
+          setCalendarDays(validDays)
         } else {
-          // Generate 7-day fallback dates around current date (tanpa harga, tampil "-")
-          const anchor = new Date(date)
+          // Generate 7-day fallback dates (tanpa harga, tampil "-") mulai dari hari ini / activeDate
+          const validActive = activeDate < todayStr ? todayStr : activeDate
+          const anchor = new Date(validActive + 'T00:00:00')
+          const todayDate = new Date(todayStr + 'T00:00:00')
+          const diffDays = Math.round(
+            (anchor.getTime() - todayDate.getTime()) / (1000 * 3600 * 24)
+          )
+          const startOffset = diffDays <= 3 ? -diffDays : -3
+
           const fallbackDays: CalendarDay[] = []
-          for (let i = -3; i <= 3; i++) {
+          for (let i = 0; i < 7; i++) {
             const d = new Date(anchor)
-            d.setDate(anchor.getDate() + i)
+            d.setDate(anchor.getDate() + startOffset + i)
+            const dStr = d.toLocaleDateString('en-CA')
+            if (dStr >= todayStr && !fallbackDays.some((x) => x.date === dStr)) {
+              fallbackDays.push({
+                date: dStr,
+                lowest_price: null,
+              })
+            }
+          }
+          while (fallbackDays.length < 7) {
+            const last = new Date(
+              (fallbackDays[fallbackDays.length - 1]?.date || todayStr) + 'T00:00:00'
+            )
+            last.setDate(last.getDate() + 1)
             fallbackDays.push({
-              date: d.toISOString().slice(0, 10),
+              date: last.toLocaleDateString('en-CA'),
               lowest_price: null,
             })
           }
@@ -201,9 +336,29 @@ export default function SearchResults() {
     return { direct, transit }
   }, [flights])
 
-  // Filtered flights (Client-side filters: Type, Airlines, Price, Time Windows)
+  // Filtered flights (Client-side filters: Keyword Search, Type, Airlines, Price, Time Windows)
   const filteredFlights = useMemo(() => {
     return flights.filter((f) => {
+      // 0. Keyword search in sidebar
+      if (searchKeyword.trim()) {
+        const kw = searchKeyword.trim().toLowerCase()
+        const matchAirline = f.airline?.name?.toLowerCase().includes(kw)
+        const matchCode = f.flight_number?.toLowerCase().includes(kw)
+        const matchPlane = f.airplane?.model?.toLowerCase().includes(kw)
+        const matchTransitCity = f.segments?.some(
+          (s) =>
+            s.origin?.city?.toLowerCase().includes(kw) ||
+            s.destination?.city?.toLowerCase().includes(kw) ||
+            s.origin?.name?.toLowerCase().includes(kw) ||
+            s.destination?.name?.toLowerCase().includes(kw) ||
+            s.origin?.code?.toLowerCase().includes(kw) ||
+            s.destination?.code?.toLowerCase().includes(kw)
+        )
+        if (!matchAirline && !matchCode && !matchPlane && !matchTransitCity) {
+          return false
+        }
+      }
+
       // 1. Flight Type Filter
       if (filterTypes.length > 0) {
         if (!filterTypes.includes(f.flight_type)) return false
@@ -234,7 +389,7 @@ export default function SearchResults() {
 
       return true
     })
-  }, [flights, filterTypes, filterAirlines, maxPrice, timeWindows, cabinClass])
+  }, [flights, searchKeyword, filterTypes, filterAirlines, maxPrice, timeWindows, cabinClass])
 
   // Sort change handler
   const handleSortChange = (newSort: string) => {
@@ -244,8 +399,9 @@ export default function SearchResults() {
     setSearchParams(nextParams)
   }
 
-  // Date selection in 7-day strip
+  // Date selection in 7-day strip (hari sebelumnya dicegah)
   const handleDateSelect = (selectedDay: string) => {
+    if (selectedDay < todayStr) return
     const nextParams = new URLSearchParams(searchParams)
     nextParams.set('date', selectedDay)
     setSearchParams(nextParams)
@@ -255,36 +411,77 @@ export default function SearchResults() {
   const handleApplySearchEdit = (e: React.FormEvent) => {
     e.preventDefault()
     setIsEditSearchOpen(false)
+    setActiveAirportDropdown(null)
     const nextParams = new URLSearchParams({
-      origin: editOrigin.trim().toUpperCase(),
-      destination: editDestination.trim().toUpperCase(),
+      origin: editOriginAirport.code,
+      destination: editDestAirport.code,
       date: editDate,
       passengers: String(editPassengers),
       class: editClass,
       sort,
     })
+    if (editTripType === 'roundtrip') {
+      nextParams.set('trip', 'roundtrip')
+      nextParams.set('returnDate', editReturnDate || editDate)
+    }
+    if (editTripType === 'group' || editPassengers >= 2) {
+      nextParams.set('group', 'true')
+    }
     setSearchParams(nextParams)
   }
 
-  // Handle select flight CTA
-  const handleChooseFlight = (flightId: number) => {
+  // Handle select flight CTA (Supports 2-step Round-Trip & Group flow)
+  const handleChooseFlight = (flight: FlightResultItem) => {
+    if (isRoundtrip && roundTripStep === 'outbound') {
+      setSelectedOutbound(flight)
+      setRoundTripStep('inbound')
+      window.scrollTo({ top: 0, behavior: 'smooth' })
+      return
+    }
+
+    const returnFlightId = isRoundtrip && roundTripStep === 'inbound' ? flight.id : undefined
+    const outboundFlightId = isRoundtrip && selectedOutbound ? selectedOutbound.id : flight.id
+
+    const params = new URLSearchParams({
+      passengers: String(passengers),
+      class: cabinClass,
+    })
+    if (returnFlightId) {
+      params.set('returnFlightId', String(returnFlightId))
+      params.set('trip', 'roundtrip')
+    }
+    if (isGroup) {
+      params.set('group', 'true')
+    }
+
+    const targetUrl = `/flights/${outboundFlightId}?${params.toString()}`
+
     if (!user) {
-      navigate(
-        `/login?redirect=${encodeURIComponent(
-          `/flights/${flightId}?passengers=${passengers}&class=${cabinClass}`
-        )}`
-      )
+      navigate(`/login?redirect=${encodeURIComponent(targetUrl)}`)
     } else {
-      navigate(`/flights/${flightId}?passengers=${passengers}&class=${cabinClass}`)
+      navigate(targetUrl)
     }
   }
 
   // Format Helper: Day Abbreviation
   const formatDayName = (dateStr: string) => {
     try {
-      const d = new Date(dateStr)
+      const d = new Date(dateStr + 'T00:00:00')
       const days = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
-      const months = ['Jan', 'Feb', 'Mar', 'Apr', 'Mei', 'Jun', 'Jul', 'Agu', 'Sep', 'Okt', 'Nov', 'Des']
+      const months = [
+        'Jan',
+        'Feb',
+        'Mar',
+        'Apr',
+        'Mei',
+        'Jun',
+        'Jul',
+        'Agu',
+        'Sep',
+        'Okt',
+        'Nov',
+        'Des',
+      ]
       return `${days[d.getDay()]}, ${d.getDate()} ${months[d.getMonth()]}`
     } catch {
       return dateStr
@@ -318,6 +515,7 @@ export default function SearchResults() {
 
   // Reset all client filters
   const handleResetFilters = () => {
+    setSearchKeyword('')
     setFilterTypes([])
     setFilterAirlines([])
     setMaxPrice(maxSliderPrice)
@@ -326,6 +524,7 @@ export default function SearchResults() {
   }
 
   const isAnyFilterActive =
+    Boolean(searchKeyword.trim()) ||
     filterTypes.length > 0 ||
     filterAirlines.length > 0 ||
     timeWindows.length > 0 ||
@@ -342,17 +541,23 @@ export default function SearchResults() {
           <div className="max-w-content mx-auto px-4 md:px-6 py-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
             <div className="flex flex-wrap items-center gap-2 md:gap-3">
               <div className="flex items-center gap-2">
-                <span className="font-bold text-lg md:text-xl text-ink font-sans tracking-tight">
-                  {origin}
+                <span className="font-bold text-base sm:text-lg text-ink font-sans tracking-tight">
+                  {getPrimaryCity(activeOrigin)}
+                </span>
+                <span className="px-1.5 py-0.2 rounded bg-tint text-brand-fg font-mono text-[11px] font-bold">
+                  {activeOrigin}
                 </span>
                 <span className="material-symbols-outlined text-brand-fg text-[18px]">east</span>
-                <span className="font-bold text-lg md:text-xl text-ink font-sans tracking-tight">
-                  {destination}
+                <span className="font-bold text-base sm:text-lg text-ink font-sans tracking-tight">
+                  {getPrimaryCity(activeDestination)}
+                </span>
+                <span className="px-1.5 py-0.2 rounded bg-tint text-brand-fg font-mono text-[11px] font-bold">
+                  {activeDestination}
                 </span>
               </div>
               <span className="text-line hidden sm:inline">•</span>
               <span className="text-sm font-medium text-subtle">
-                {formatDayName(date)}
+                {formatDayName(activeDate)}
               </span>
               <span className="text-line hidden sm:inline">•</span>
               <span className="text-sm text-subtle font-medium">
@@ -362,6 +567,16 @@ export default function SearchResults() {
               <span className="text-xs uppercase font-bold tracking-wider px-2 py-0.5 rounded bg-tint text-brand-fg">
                 {cabinClass === 'business' ? 'Bisnis' : 'Ekonomi'}
               </span>
+              {isRoundtrip && (
+                <span className="text-xs font-bold px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 border border-emerald-500/20">
+                  Pulang-Pergi (PP)
+                </span>
+              )}
+              {isGroup && (
+                <span className="text-xs font-bold px-2 py-0.5 rounded bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/20">
+                  Rombongan ({groupDiscount}% OFF)
+                </span>
+              )}
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
@@ -378,78 +593,396 @@ export default function SearchResults() {
             </div>
           </div>
 
-          {/* Inline Search Panel Drawer */}
+          {/* ─── Round-Trip 2-Step Progress Indicator ─── */}
+          {isRoundtrip && (
+            <div className="border-t border-line/60 bg-page/50 px-4 md:px-6 py-2.5">
+              <div className="max-w-content mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-xs">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <div
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-bold ${
+                      roundTripStep === 'outbound'
+                        ? 'bg-brand text-white shadow-xs'
+                        : 'bg-emerald-500/20 text-emerald-700 dark:text-emerald-400'
+                    }`}
+                  >
+                    {selectedOutbound ? (
+                      <span className="material-symbols-outlined text-[14px]">check</span>
+                    ) : (
+                      <span>1</span>
+                    )}
+                    <span>Penerbangan Pergi ({origin} → {destination})</span>
+                  </div>
+
+                  <span className="material-symbols-outlined text-[15px] text-subtle">east</span>
+
+                  <div
+                    className={`flex items-center gap-1.5 px-3 py-1 rounded-full font-bold ${
+                      roundTripStep === 'inbound'
+                        ? 'bg-brand text-white shadow-xs'
+                        : 'bg-panel border border-line text-subtle'
+                    }`}
+                  >
+                    <span>2</span>
+                    <span>Penerbangan Pulang ({destination} → {origin})</span>
+                    <span className="text-[10px] bg-emerald-400 text-[#0B2545] px-1.5 py-0.2 rounded-full font-extrabold ml-1">
+                      Diskon 10%
+                    </span>
+                  </div>
+                </div>
+
+                {selectedOutbound && (
+                  <div className="flex items-center gap-2 text-xs">
+                    <span className="text-subtle">
+                      Pergi:{' '}
+                      <strong className="text-ink">
+                        {selectedOutbound.airline?.name} ({selectedOutbound.flight_number})
+                      </strong>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setRoundTripStep('outbound')
+                      }}
+                      className="text-brand-fg font-bold underline hover:text-brand-hover ml-1"
+                    >
+                      Ganti Tiket Pergi
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Inline Search Panel Drawer with City-First Autocomplete & Trip Switcher */}
           {isEditSearchOpen && (
-            <div className="border-t border-line bg-page/70 p-4 md:p-6 animate-in slide-in-from-top-2 duration-150">
-              <form
-                onSubmit={handleApplySearchEdit}
-                className="max-w-content mx-auto grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end"
-              >
-                <div>
-                  <label className="text-xs font-bold text-subtle uppercase">Dari (IATA)</label>
-                  <input
-                    type="text"
-                    required
-                    maxLength={3}
-                    value={editOrigin}
-                    onChange={(e) => setEditOrigin(e.target.value.toUpperCase())}
-                    placeholder="CGK"
-                    className="w-full h-11 px-3 mt-1 bg-raised border border-line rounded-control text-ink font-bold text-sm uppercase focus:outline-none focus:ring-2 focus:ring-brand-fg"
-                  />
+            <div
+              ref={editDrawerRef}
+              className="border-t border-line bg-panel p-4 md:p-6 shadow-sm"
+            >
+              <form onSubmit={handleApplySearchEdit} className="max-w-content mx-auto space-y-4">
+                {/* Trip Type Selector */}
+                <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-line/60">
+                  <div className="flex items-center gap-1.5 sm:gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setEditTripType('oneway')}
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
+                        editTripType === 'oneway'
+                          ? 'bg-brand text-white shadow-xs'
+                          : 'bg-raised hover:bg-tint text-subtle hover:text-ink border border-line'
+                      }`}
+                    >
+                      Sekali Jalan
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setEditTripType('roundtrip')}
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer ${
+                        editTripType === 'roundtrip'
+                          ? 'bg-brand text-white shadow-xs'
+                          : 'bg-raised hover:bg-tint text-subtle hover:text-ink border border-line'
+                      }`}
+                    >
+                      <span>Pulang-Pergi (PP)</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-emerald-500/20 text-emerald-700 dark:text-emerald-400">
+                        Hemat 10%
+                      </span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setEditTripType('group')
+                        if (editPassengers < 2) setEditPassengers(2)
+                      }}
+                      className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer ${
+                        editTripType === 'group'
+                          ? 'bg-brand text-white shadow-xs'
+                          : 'bg-raised hover:bg-tint text-subtle hover:text-ink border border-line'
+                      }`}
+                    >
+                      <span className="material-symbols-outlined text-[14px]">group</span>
+                      <span>Berangkat Bareng</span>
+                      <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-amber-500/20 text-amber-700 dark:text-amber-400">
+                        Diskon s/d 15%
+                      </span>
+                    </button>
+                  </div>
+
+                  <span className="text-xs text-subtle font-medium">
+                    Ketik nama kota (Bali, Jakarta, Jogja, Surabaya) untuk mencari bandara
+                  </span>
                 </div>
-                <div>
-                  <label className="text-xs font-bold text-subtle uppercase">Ke (IATA)</label>
-                  <input
-                    type="text"
-                    required
-                    maxLength={3}
-                    value={editDestination}
-                    onChange={(e) => setEditDestination(e.target.value.toUpperCase())}
-                    placeholder="DPS"
-                    className="w-full h-11 px-3 mt-1 bg-raised border border-line rounded-control text-ink font-bold text-sm uppercase focus:outline-none focus:ring-2 focus:ring-brand-fg"
-                  />
+
+                {/* Grid Inputs */}
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                  {/* Origin City-First Input */}
+                  <div className="md:col-span-3 relative">
+                    <label className="text-[10px] font-bold text-subtle uppercase block mb-1">
+                      Kota Asal (Dari)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCitySearchQuery('')
+                        setActiveAirportDropdown(activeAirportDropdown === 'origin' ? null : 'origin')
+                      }}
+                      className={`w-full h-14 flex items-center justify-between px-3.5 bg-raised border rounded-control text-left transition-all cursor-pointer ${
+                        activeAirportDropdown === 'origin'
+                          ? 'border-brand-fg ring-2 ring-brand-fg/20'
+                          : 'border-line hover:border-brand-fg/50'
+                      }`}
+                    >
+                      <div className="flex flex-col truncate pr-2">
+                        <span className="text-xs font-bold text-ink truncate">
+                          {editOriginAirport.primaryCity || editOriginAirport.city}
+                        </span>
+                        <span className="text-[10px] text-subtle truncate">
+                          {editOriginAirport.name}
+                        </span>
+                      </div>
+                      <span className="px-2 py-0.5 rounded bg-tint text-brand-fg font-mono text-xs font-bold shrink-0">
+                        {editOriginAirport.code}
+                      </span>
+                    </button>
+
+                    {/* Popover Origin Autocomplete */}
+                    {activeAirportDropdown === 'origin' && (
+                      <div className="absolute top-[calc(100%+6px)] left-0 w-full min-w-[320px] max-w-[360px] bg-white dark:bg-[#112038] border border-line rounded-xl shadow-2xl p-2.5 z-[100] ring-1 ring-black/10 dark:ring-white/10 opacity-100">
+                        <div className="relative mb-2">
+                          <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-subtle">
+                            search
+                          </span>
+                          <input
+                            type="text"
+                            value={citySearchQuery}
+                            onChange={(e) => setCitySearchQuery(e.target.value)}
+                            placeholder="Ketik kota (cth: Jakarta, Bali, Jogja)..."
+                            autoFocus
+                            className="w-full pl-8 pr-3 py-1.5 text-xs bg-panel border border-line rounded-lg text-ink focus:outline-none focus:ring-1 focus:ring-brand-fg"
+                          />
+                        </div>
+                        <div className="max-h-56 overflow-y-auto space-y-1">
+                          {displayedAirports.map((item) => (
+                            <button
+                              key={item.code}
+                              type="button"
+                              onClick={() => {
+                                setEditOriginAirport(item)
+                                setActiveAirportDropdown(null)
+                              }}
+                              className={`w-full flex items-center justify-between p-2 rounded-lg text-left text-xs transition-colors cursor-pointer ${
+                                editOriginAirport.code === item.code
+                                  ? 'bg-tint text-brand-fg font-bold'
+                                  : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-ink'
+                              }`}
+                            >
+                              <div className="truncate pr-2">
+                                <div className="font-bold truncate">{item.primaryCity || item.city}</div>
+                                <div className="text-[10px] text-subtle truncate">{item.name}</div>
+                              </div>
+                              <span className="px-1.5 py-0.5 rounded bg-panel border border-line font-mono text-[11px] font-bold shrink-0">
+                                {item.code}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Swap Button */}
+                  <div className="hidden md:flex md:col-span-1 justify-center pt-5">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const temp = editOriginAirport
+                        setEditOriginAirport(editDestAirport)
+                        setEditDestAirport(temp)
+                      }}
+                      title="Tukar rute"
+                      className="w-8 h-8 rounded-full border border-line bg-raised hover:bg-tint text-brand-fg flex items-center justify-center transition-transform hover:rotate-180 duration-200 cursor-pointer"
+                    >
+                      <span className="material-symbols-outlined text-[18px]">swap_horiz</span>
+                    </button>
+                  </div>
+
+                  {/* Destination City-First Input */}
+                  <div className="md:col-span-3 relative">
+                    <label className="text-[10px] font-bold text-subtle uppercase block mb-1">
+                      Kota Tujuan (Ke)
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCitySearchQuery('')
+                        setActiveAirportDropdown(activeAirportDropdown === 'destination' ? null : 'destination')
+                      }}
+                      className={`w-full h-14 flex items-center justify-between px-3.5 bg-raised border rounded-control text-left transition-all cursor-pointer ${
+                        activeAirportDropdown === 'destination'
+                          ? 'border-brand-fg ring-2 ring-brand-fg/20'
+                          : 'border-line hover:border-brand-fg/50'
+                      }`}
+                    >
+                      <div className="flex flex-col truncate pr-2">
+                        <span className="text-xs font-bold text-ink truncate">
+                          {editDestAirport.primaryCity || editDestAirport.city}
+                        </span>
+                        <span className="text-[10px] text-subtle truncate">
+                          {editDestAirport.name}
+                        </span>
+                      </div>
+                      <span className="px-2 py-0.5 rounded bg-tint text-brand-fg font-mono text-xs font-bold shrink-0">
+                        {editDestAirport.code}
+                      </span>
+                    </button>
+
+                    {/* Popover Destination Autocomplete */}
+                    {activeAirportDropdown === 'destination' && (
+                      <div className="absolute top-[calc(100%+6px)] left-0 w-full min-w-[320px] max-w-[360px] bg-white dark:bg-[#112038] border border-line rounded-xl shadow-2xl p-2.5 z-[100] ring-1 ring-black/10 dark:ring-white/10 opacity-100">
+                        <div className="relative mb-2">
+                          <span className="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-[16px] text-subtle">
+                            search
+                          </span>
+                          <input
+                            type="text"
+                            value={citySearchQuery}
+                            onChange={(e) => setCitySearchQuery(e.target.value)}
+                            placeholder="Ketik kota (cth: Bali, Jogja, Surabaya)..."
+                            autoFocus
+                            className="w-full pl-8 pr-3 py-1.5 text-xs bg-panel border border-line rounded-lg text-ink focus:outline-none focus:ring-1 focus:ring-brand-fg"
+                          />
+                        </div>
+                        <div className="max-h-56 overflow-y-auto space-y-1">
+                          {displayedAirports.map((item) => (
+                            <button
+                              key={item.code}
+                              type="button"
+                              onClick={() => {
+                                setEditDestAirport(item)
+                                setActiveAirportDropdown(null)
+                              }}
+                              className={`w-full flex items-center justify-between p-2 rounded-lg text-left text-xs transition-colors cursor-pointer ${
+                                editDestAirport.code === item.code
+                                  ? 'bg-tint text-brand-fg font-bold'
+                                  : 'hover:bg-slate-100 dark:hover:bg-slate-800 text-ink'
+                              }`}
+                            >
+                              <div className="truncate pr-2">
+                                <div className="font-bold truncate">{item.primaryCity || item.city}</div>
+                                <div className="text-[10px] text-subtle truncate">{item.name}</div>
+                              </div>
+                              <span className="px-1.5 py-0.5 rounded bg-panel border border-line font-mono text-[11px] font-bold shrink-0">
+                                {item.code}
+                              </span>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Dates & Passengers (col-span-5) */}
+                  <div className="md:col-span-5 grid grid-cols-1 sm:grid-cols-3 gap-2 items-center">
+                    <div>
+                      <label className="text-[10px] font-bold text-subtle uppercase block mb-1">
+                        Berangkat
+                      </label>
+                      <input
+                        type="date"
+                        required
+                        min={todayStr}
+                        value={editDate}
+                        onChange={(e) => {
+                          const val = e.target.value
+                          setEditDate(val)
+                          if (editReturnDate && editReturnDate < val) {
+                            setEditReturnDate(val)
+                          }
+                        }}
+                        className="w-full h-14 px-2.5 bg-raised border border-line rounded-control text-ink text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-fg"
+                      />
+                    </div>
+
+                    {editTripType === 'roundtrip' ? (
+                      <div>
+                        <label className="text-[10px] font-bold text-subtle uppercase block mb-1">
+                          Pulang
+                        </label>
+                        <input
+                          type="date"
+                          required
+                          min={editDate || todayStr}
+                          value={editReturnDate}
+                          onChange={(e) => setEditReturnDate(e.target.value)}
+                          className="w-full h-14 px-2.5 bg-raised border border-line rounded-control text-ink text-xs font-semibold focus:outline-none focus:ring-2 focus:ring-brand-fg"
+                        />
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="text-[10px] font-bold text-subtle uppercase block mb-1">
+                          Penumpang & Kelas
+                        </label>
+                        <div className="grid grid-cols-2 gap-1">
+                          <select
+                            value={editPassengers}
+                            onChange={(e) => setEditPassengers(Number(e.target.value))}
+                            className="h-14 px-1 bg-raised border border-line rounded-control text-ink text-xs font-semibold focus:outline-none"
+                          >
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+                              <option key={n} value={n}>
+                                {n} pax
+                              </option>
+                            ))}
+                          </select>
+                          <select
+                            value={editClass}
+                            onChange={(e) => setEditClass(e.target.value as any)}
+                            className="h-14 px-1 bg-raised border border-line rounded-control text-ink text-[11px] font-semibold focus:outline-none"
+                          >
+                            <option value="economy">Ekonomi</option>
+                            <option value="business">Bisnis</option>
+                          </select>
+                        </div>
+                      </div>
+                    )}
+
+                    <div className="sm:self-end">
+                      <button
+                        type="submit"
+                        className="w-full h-14 bg-brand hover:bg-brand-hover text-white rounded-control text-sm font-bold shadow-sm transition-all flex items-center justify-center gap-1.5 active:scale-95 cursor-pointer"
+                      >
+                        <span className="material-symbols-outlined text-[18px]">search</span>
+                        <span>Cari Tiket</span>
+                      </button>
+                    </div>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-xs font-bold text-subtle uppercase">Tanggal</label>
-                  <input
-                    type="date"
-                    required
-                    value={editDate}
-                    onChange={(e) => setEditDate(e.target.value)}
-                    className="w-full h-11 px-3 mt-1 bg-raised border border-line rounded-control text-ink text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-fg"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-subtle uppercase">Penumpang & Kelas</label>
-                  <div className="grid grid-cols-2 gap-2 mt-1">
+
+                {/* If Roundtrip: Passenger/Class selector line below */}
+                {editTripType === 'roundtrip' && (
+                  <div className="flex items-center gap-3 pt-1">
+                    <span className="text-xs font-bold text-subtle">Penumpang & Kelas:</span>
                     <select
                       value={editPassengers}
                       onChange={(e) => setEditPassengers(Number(e.target.value))}
-                      className="h-11 px-2 bg-raised border border-line rounded-control text-ink text-xs font-semibold focus:outline-none"
+                      className="h-9 px-2.5 bg-raised border border-line rounded-control text-ink text-xs font-semibold focus:outline-none"
                     >
                       {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
                         <option key={n} value={n}>
-                          {n} org
+                          {n} Penumpang
                         </option>
                       ))}
                     </select>
                     <select
                       value={editClass}
                       onChange={(e) => setEditClass(e.target.value as any)}
-                      className="h-11 px-2 bg-raised border border-line rounded-control text-ink text-xs font-semibold focus:outline-none"
+                      className="h-9 px-2.5 bg-raised border border-line rounded-control text-ink text-xs font-semibold focus:outline-none"
                     >
-                      <option value="economy">Ekonomi</option>
-                      <option value="business">Bisnis</option>
+                      <option value="economy">Kelas Ekonomi</option>
+                      <option value="business">Kelas Bisnis</option>
                     </select>
                   </div>
-                </div>
-                <button
-                  type="submit"
-                  className="h-11 px-6 bg-brand hover:bg-brand-hover text-white rounded-control text-sm font-semibold shadow-sm transition-all flex items-center justify-center gap-1.5 active:scale-95"
-                >
-                  <span className="material-symbols-outlined text-[18px]">search</span>
-                  <span>Cari Tiket</span>
-                </button>
+                )}
               </form>
             </div>
           )}
@@ -459,41 +992,51 @@ export default function SearchResults() {
         <section className="bg-raised border-b border-line">
           <div className="max-w-content mx-auto px-4 md:px-6">
             <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-1 md:gap-2 py-2 overflow-x-auto">
-              {calendarDays.map((cd) => {
-                const isSelected = cd.date === date
-                const hasFlight = cd.lowest_price !== null && cd.lowest_price > 0
+              {calendarDays
+                .filter((cd) => cd.date >= todayStr)
+                .map((cd) => {
+                  const isSelected = cd.date === activeDate
+                  const isToday = cd.date === todayStr
+                  const hasFlight = cd.lowest_price !== null && cd.lowest_price > 0
 
-                return (
-                  <button
-                    key={cd.date}
-                    type="button"
-                    disabled={!hasFlight}
-                    onClick={() => handleDateSelect(cd.date)}
-                    className={`relative flex flex-col items-center justify-center py-2.5 px-2 rounded-control text-center transition-all ${
-                      isSelected
-                        ? 'bg-tint text-ink'
-                        : hasFlight
-                        ? 'hover:bg-page text-ink cursor-pointer'
-                        : 'opacity-40 cursor-not-allowed text-subtle'
-                    }`}
-                  >
-                    {/* Active Underline Indicator */}
-                    {isSelected && (
-                      <div className="absolute bottom-0 left-3 right-3 h-[3px] bg-brand-fg rounded-t-full" />
-                    )}
-                    <span
-                      className={`text-xs ${
-                        isSelected ? 'font-bold text-brand-fg' : 'text-subtle font-medium'
+                  return (
+                    <button
+                      key={cd.date}
+                      type="button"
+                      disabled={!hasFlight}
+                      onClick={() => handleDateSelect(cd.date)}
+                      className={`relative flex flex-col items-center justify-center py-2.5 px-2 rounded-control text-center transition-all ${
+                        isSelected
+                          ? 'bg-tint text-ink ring-1 ring-brand-fg/30'
+                          : hasFlight
+                          ? 'hover:bg-page text-ink cursor-pointer'
+                          : 'opacity-40 cursor-not-allowed text-subtle'
                       }`}
                     >
-                      {formatDayName(cd.date)}
-                    </span>
-                    <span className="text-xs font-bold tabular-nums mt-0.5">
-                      {hasFlight ? formatRupiah(cd.lowest_price) : '-'}
-                    </span>
-                  </button>
-                )
-              })}
+                      {/* Active Underline Indicator */}
+                      {isSelected && (
+                        <div className="absolute bottom-0 left-3 right-3 h-[3px] bg-brand-fg rounded-t-full" />
+                      )}
+                      <div className="flex items-center gap-1">
+                        <span
+                          className={`text-xs ${
+                            isSelected ? 'font-bold text-brand-fg' : 'text-subtle font-medium'
+                          }`}
+                        >
+                          {formatDayName(cd.date)}
+                        </span>
+                        {isToday && (
+                          <span className="text-[9px] uppercase px-1 py-0.2 rounded bg-brand-fg/15 text-brand-fg font-extrabold tracking-tight">
+                            Hari ini
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-xs font-bold tabular-nums mt-0.5">
+                        {hasFlight ? formatRupiah(cd.lowest_price) : '-'}
+                      </span>
+                    </button>
+                  )
+                })}
             </div>
           </div>
         </section>
@@ -510,12 +1053,42 @@ export default function SearchResults() {
                   <button
                     type="button"
                     onClick={handleResetFilters}
-                    className="text-xs text-brand-fg hover:underline font-semibold"
+                    className="text-xs text-brand-fg hover:underline font-semibold cursor-pointer"
                   >
                     Reset filter
                   </button>
                 )}
               </div>
+
+              {/* Quick Search inside Filter Sidebar */}
+              <div className="space-y-1.5">
+                <span className="text-xs font-bold text-subtle uppercase tracking-wider block">
+                  Cari Maskapai / No. Penerbangan
+                </span>
+                <div className="relative">
+                  <span className="material-symbols-outlined text-[16px] text-subtle absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none">
+                    search
+                  </span>
+                  <input
+                    type="text"
+                    value={searchKeyword}
+                    onChange={(e) => setSearchKeyword(e.target.value)}
+                    placeholder="Nama maskapai, no. flight..."
+                    className="w-full pl-8 pr-7 py-2 bg-panel border border-line rounded-control text-xs text-ink placeholder:text-subtle focus:outline-none focus:ring-1 focus:ring-brand-fg font-medium"
+                  />
+                  {searchKeyword && (
+                    <button
+                      type="button"
+                      onClick={() => setSearchKeyword('')}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 text-subtle hover:text-ink text-xs p-0.5 cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="h-px bg-line" />
 
               {/* 1. Tipe Penerbangan */}
               <div className="space-y-2.5">
@@ -732,6 +1305,17 @@ export default function SearchResults() {
                   </span>
 
                   {/* Active filter chips */}
+                  {searchKeyword && (
+                    <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-tint text-brand-fg text-xs font-semibold">
+                      <span>Cari: &quot;{searchKeyword}&quot;</span>
+                      <button
+                        onClick={() => setSearchKeyword('')}
+                        className="hover:text-danger leading-none text-xs cursor-pointer"
+                      >
+                        ✕
+                      </button>
+                    </span>
+                  )}
                   {filterTypes.map((t) => (
                     <span
                       key={t}
@@ -921,8 +1505,11 @@ export default function SearchResults() {
                               <div className="font-bold text-base md:text-lg tabular-nums text-ink">
                                 {formatTime(firstSeg?.departure_time)}
                               </div>
-                              <div className="text-xs font-semibold text-subtle">
-                                {firstSeg?.origin?.code || origin}
+                              <div className="text-xs font-bold text-ink truncate max-w-[120px]">
+                                {firstSeg?.origin?.city || getPrimaryCity(firstSeg?.origin?.code || activeOrigin)}
+                              </div>
+                              <div className="text-[11px] font-mono font-bold text-subtle">
+                                {firstSeg?.origin?.code || activeOrigin}
                               </div>
                               {/* Revisi data real: Keterlambatan */}
                               {flight.delay_minutes > 0 && (
@@ -946,19 +1533,16 @@ export default function SearchResults() {
                                   flight
                                 </span>
                               </div>
-                              <div className="flex items-center gap-1 mt-1">
-                                <span
-                                  className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${
-                                    isTransit
-                                      ? 'bg-amber-500/15 text-amber-700 dark:text-amber-300'
-                                      : 'bg-tint text-brand-fg'
-                                  }`}
-                                >
-                                  {isTransit
-                                    ? `1 transit di ${flight.segments[0].destination?.code || 'SUB'}`
-                                    : 'Langsung'}
-                                </span>
-                                {/* Revisi data real: layover warning */}
+                              <div className="flex items-center gap-1 mt-1 flex-wrap justify-center">
+                                {isTransit ? (
+                                  <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/20">
+                                    Transit di {flight.segments[0].destination?.city || getCityName(flight.segments[0].destination?.code)} ({flight.segments[0].destination?.code || 'SUB'})
+                                  </span>
+                                ) : (
+                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-tint text-brand-fg">
+                                    Langsung
+                                  </span>
+                                )}
                                 {flight.layover_warning === 'short' && (
                                   <span className="text-[9px] font-bold text-danger flex items-center">
                                     • Transit singkat
@@ -977,27 +1561,59 @@ export default function SearchResults() {
                               <div className="font-bold text-base md:text-lg tabular-nums text-ink">
                                 {formatTime(lastSeg?.arrival_time)}
                               </div>
-                              <div className="text-xs font-semibold text-subtle">
-                                {lastSeg?.destination?.code || destination}
+                              <div className="text-xs font-bold text-ink truncate max-w-[120px]">
+                                {lastSeg?.destination?.city || getPrimaryCity(lastSeg?.destination?.code || activeDestination)}
+                              </div>
+                              <div className="text-[11px] font-mono font-bold text-subtle">
+                                {lastSeg?.destination?.code || activeDestination}
                               </div>
                             </div>
                           </div>
 
                           {/* Right: Price & CTA */}
-                          <div className="flex items-center justify-between md:justify-end gap-5 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-line">
-                            <div className="text-left md:text-right">
-                              <div className="text-base md:text-lg font-bold text-ink tabular-nums">
-                                {formatRupiah(finalPrice)}
+                          <div className="flex items-center justify-between md:justify-end gap-4 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-line">
+                            {roundTripStep === 'inbound' ? (
+                              <div className="text-left md:text-right">
+                                <div className="text-[11px] text-subtle line-through tabular-nums">
+                                  {formatRupiah(finalPrice)}
+                                </div>
+                                <div className="text-base md:text-lg font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
+                                  {formatRupiah(Math.round(finalPrice * 0.9))}
+                                </div>
+                                <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
+                                  Diskon PP 10%
+                                </span>
                               </div>
-                              <div className="text-[11px] text-subtle">per orang</div>
-                            </div>
+                            ) : (
+                              <div className="text-left md:text-right">
+                                <div className="text-base md:text-lg font-bold text-ink tabular-nums">
+                                  {formatRupiah(finalPrice)}
+                                </div>
+                                <div className="text-[11px] text-subtle">
+                                  {isGroup ? (
+                                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                                      Diskon Rombongan s/d {groupDiscount}%
+                                    </span>
+                                  ) : (
+                                    'per orang'
+                                  )}
+                                </div>
+                              </div>
+                            )}
 
                             <button
                               type="button"
-                              onClick={() => handleChooseFlight(flight.id)}
-                              className="h-11 px-6 rounded-control bg-brand hover:bg-brand-hover text-white font-semibold text-xs transition-all shadow-sm active:scale-95 flex items-center justify-center"
+                              onClick={() => handleChooseFlight(flight)}
+                              className="h-11 px-5 rounded-control bg-brand hover:bg-brand-hover text-white font-semibold text-xs transition-all shadow-sm active:scale-95 flex items-center justify-center gap-1.5"
                             >
-                              Pilih
+                              <span>
+                                {isRoundtrip && roundTripStep === 'outbound'
+                                  ? 'Pilih Pergi'
+                                  : isRoundtrip && roundTripStep === 'inbound'
+                                  ? 'Pilih Pulang'
+                                  : 'Pilih'}
+                              </span>
+                              <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
                             </button>
                           </div>
                         </div>

@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import AdminLayout from '../../components/layout/AdminLayout'
 import { api } from '../../lib/api'
 import { useAuthStore } from '../../store/authStore'
+import Pagination from '../../components/common/Pagination'
 
 interface UserItem {
   id: number
@@ -24,6 +25,10 @@ export default function UsersPage() {
   const [activeMenuId, setActiveMenuId] = useState<number | null>(null)
   const [toastMessage, setToastMessage] = useState<string | null>(null)
   const [tempPasswordCopied, setTempPasswordCopied] = useState<string | null>(null)
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1)
+  const [pageSize, setPageSize] = useState(15)
 
   // Form states for adding staff
   const [formData, setFormData] = useState({
@@ -213,6 +218,17 @@ export default function UsersPage() {
     })
   }, [users, selectedRole, selectedStatus, searchQuery])
 
+  // Reset page when filters change
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [selectedRole, selectedStatus, searchQuery])
+
+  // Pagination Slice
+  const paginatedUsers = useMemo(() => {
+    const start = (currentPage - 1) * pageSize
+    return filteredUsers.slice(start, start + pageSize)
+  }, [filteredUsers, currentPage, pageSize])
+
   // Counts
   const totalCount = users.length
   const adminCount = users.filter((u) => u.role === 'admin').length
@@ -391,7 +407,7 @@ export default function UsersPage() {
                     </td>
                   </tr>
                 ) : (
-                  filteredUsers.map((userItem) => {
+                  paginatedUsers.map((userItem) => {
                     const initials = userItem.name
                       .split(' ')
                       .map((w) => w[0])
@@ -556,14 +572,18 @@ export default function UsersPage() {
             </table>
           </div>
 
-          <div className="p-4 bg-raised border-t border-line flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-subtle">
-            <span>
-              Menampilkan <strong>{filteredUsers.length}</strong> dari <strong>{users.length}</strong> pengguna
-            </span>
-            <div className="flex items-center gap-1.5 tabular-nums">
-              <span>Halaman 1 dari 1</span>
-            </div>
-          </div>
+          <Pagination
+            currentPage={currentPage}
+            totalItems={filteredUsers.length}
+            pageSize={pageSize}
+            onPageChange={setCurrentPage}
+            onPageSizeChange={(newSize) => {
+              setPageSize(newSize)
+              setCurrentPage(1)
+            }}
+            pageSizeOptions={[10, 15, 25, 50]}
+            itemLabel="pengguna"
+          />
         </section>
 
         {/* ─── FLOATING DIALOG MODAL: TAMBAH STAF BARU ─── */}

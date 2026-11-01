@@ -7,6 +7,7 @@ import { useAuthStore } from '../../store/authStore'
 import { useBookingStore, PassengerData } from '../../store/bookingStore'
 import { api } from '../../lib/api'
 import { AirlineLogo } from '../../components/common/AirlineLogo'
+import { getPrimaryCity } from '../../lib/airports'
 
 interface BaggageOption {
   id: number
@@ -111,6 +112,8 @@ export default function BookingDetail() {
   const navigate = useNavigate()
   const { user } = useAuthStore()
 
+  const returnFlightId = searchParams.get('returnFlightId')
+  const isRoundtrip = Boolean(returnFlightId) || searchParams.get('trip') === 'roundtrip'
   const passengersCountParam = Math.max(1, Number(searchParams.get('passengers') || 1))
   const cabinClassParam = (searchParams.get('class') || 'economy') as 'economy' | 'business'
 
@@ -127,11 +130,17 @@ export default function BookingDetail() {
 
   // Local state
   const [flight, setFlight] = useState<any | null>(null)
+  const [returnFlight, setReturnFlight] = useState<any | null>(null)
   const [baggageOptions, setBaggageOptions] = useState<BaggageOption[]>([])
   const [loading, setLoading] = useState(true)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
   const [bookingSubmitting, setBookingSubmitting] = useState(false)
   const [bookingError, setBookingError] = useState<string | null>(null)
+
+  // Promo voucher & cashback state
+  const [promoInput, setPromoInput] = useState('')
+  const [appliedPromo, setAppliedPromo] = useState<{ code: string; discount: number; label: string } | null>(null)
+  const [promoMessage, setPromoMessage] = useState<{ text: string; isError: boolean } | null>(null)
 
   // Auth gate check
   useEffect(() => {
@@ -165,22 +174,34 @@ export default function BookingDetail() {
     }
   }, [passengersCountParam, cabinClassParam, passengers.length, setPassengers, user?.name])
 
-  // Load Flight detail & Baggage options
+  // Load Flight detail & Baggage options (including return flight if round-trip)
   const loadFlightAndBaggage = async () => {
     if (!id) return
     setLoading(true)
     setErrorMsg(null)
     try {
-      const [flightRes, baggageRes] = await Promise.all([
+      const promises: Promise<any>[] = [
         api.get<any>(`/flights/${id}`),
         api.get<any>('/baggage-options').catch(() => ({ data: [] })),
-      ])
+      ]
+      if (returnFlightId) {
+        promises.push(api.get<any>(`/flights/${returnFlightId}`).catch(() => null))
+      }
+
+      const [flightRes, baggageRes, returnFlightRes] = await Promise.all(promises)
 
       const flightData = flightRes?.data?.data || flightRes?.data
       if (flightData && (flightData.id || flightData.flight_number)) {
         setFlight(flightData)
       } else {
         setErrorMsg('Data penerbangan tidak ditemukan.')
+      }
+
+      if (returnFlightRes) {
+        const retData = returnFlightRes?.data?.data || returnFlightRes?.data
+        if (retData && (retData.id || retData.flight_number)) {
+          setReturnFlight(retData)
+        }
       }
 
       const baggageData = baggageRes?.data?.data || baggageRes?.data
@@ -197,7 +218,46 @@ export default function BookingDetail() {
 
   useEffect(() => {
     loadFlightAndBaggage()
-  }, [id])
+  }, [id, returnFlightId])
+
+  // Promo Voucher Handlers
+  const handleApplyPromo = (codeToApply?: string) => {
+    const raw = (codeToApply || promoInput).trim().toUpperCase()
+    if (!raw) {
+      setPromoMessage({ text: 'Masukkan kode promo terlebih dahulu.', isError: true })
+      return
+    }
+
+    if (raw === 'SKYBARENG') {
+      if (passengers.length < 2) {
+        setPromoMessage({ text: 'Kode SKYBARENG berlaku untuk pemesanan minimal 2 penumpang.', isError: true })
+        return
+      }
+      setAppliedPromo({ code: 'SKYBARENG', discount: 100000, label: 'Kupon Rombongan SkyBareng (-Rp 100.000)' })
+      setPromoMessage({ text: 'Kode SKYBARENG berhasil digunakan! Hemat Rp 100.000.', isError: false })
+      setPromoInput('SKYBARENG')
+    } else if (raw === 'PPHEMAT') {
+      if (!isRoundtrip) {
+        setPromoMessage({ text: 'Kode PPHEMAT khusus untuk rute Pulang-Pergi (PP).', isError: true })
+        return
+      }
+      setAppliedPromo({ code: 'PPHEMAT', discount: 75000, label: 'Kupon Pulang-Pergi Hemat (-Rp 75.000)' })
+      setPromoMessage({ text: 'Kode PPHEMAT berhasil digunakan! Hemat Rp 75.000.', isError: false })
+      setPromoInput('PPHEMAT')
+    } else if (raw === 'TERBANGHEMAT') {
+      setAppliedPromo({ code: 'TERBANGHEMAT', discount: 50000, label: 'Kupon Terbang Hemat (-Rp 50.000)' })
+      setPromoMessage({ text: 'Kode TERBANGHEMAT berhasil digunakan! Hemat Rp 50.000.', isError: false })
+      setPromoInput('TERBANGHEMAT')
+    } else {
+      setPromoMessage({ text: 'Kode promo tidak valid atau sudah kedaluwarsa.', isError: true })
+    }
+  }
+
+  const handleRemovePromo = () => {
+    setAppliedPromo(null)
+    setPromoMessage(null)
+    setPromoInput('')
+  }
 
   // Selected seats map across passengers: { [passengerIndex]: { id, number, isEmergency } }
   const selectedSeatsByPassenger = useMemo(() => {
@@ -217,16 +277,43 @@ export default function BookingDetail() {
     return map
   }, [passengers])
 
-  // Calculate pricing breakdown
+  // Calculate pricing breakdown with Group Discount, Roundtrip bundle, and Promo Voucher
   const pricing = useMemo(() => {
-    if (!flight) return { baseFare: 0, totalBaseFare: 0, seatsFee: 0, baggageFee: 0, total: 0 }
+    if (!flight) {
+      return {
+        outboundBase: 0,
+        returnBase: 0,
+        totalBaseFare: 0,
+        roundtripDiscount: 0,
+        groupDiscount: 0,
+        groupPercent: 0,
+        promoDiscount: 0,
+        totalDiscount: 0,
+        seatsFee: 0,
+        baggageFee: 0,
+        subtotal: 0,
+        total: 0,
+        cashback: 0,
+      }
+    }
 
-    const baseFarePerPax =
+    const outboundBasePerPax =
       cabinClassParam === 'business' && flight.price_business
-        ? flight.price_business
-        : flight.price_economy || 0
+        ? Number(flight.price_business)
+        : Number(flight.price_economy || 0)
+    const outboundBase = outboundBasePerPax * passengers.length
 
-    const totalBaseFare = baseFarePerPax * passengers.length
+    let returnBaseRaw = 0
+    let roundtripDiscount = 0
+    if (returnFlight) {
+      const returnBasePerPax =
+        cabinClassParam === 'business' && returnFlight.price_business
+          ? Number(returnFlight.price_business)
+          : Number(returnFlight.price_economy || 0)
+      returnBaseRaw = returnBasePerPax * passengers.length
+      // Bundle PP Hemat 10% on return fare
+      roundtripDiscount = Math.round(returnBaseRaw * 0.1)
+    }
 
     // Emergency exit seats fee (+Rp 90.000 each)
     let seatsFee = 0
@@ -247,14 +334,36 @@ export default function BookingDetail() {
       }
     })
 
+    // "Berangkat Bareng" Group discount tier:
+    // 2 pax: 5%, 3-4 pax: 10%, 5+ pax: 15% off base fare
+    const groupPercent =
+      passengers.length >= 5 ? 15 : passengers.length >= 3 ? 10 : passengers.length === 2 ? 5 : 0
+    const groupDiscount = Math.round(((outboundBase + returnBaseRaw) * groupPercent) / 100)
+
+    // Promo voucher discount
+    const promoDiscount = appliedPromo?.discount || 0
+
+    const subtotal = outboundBase + returnBaseRaw + seatsFee + baggageFee
+    const totalDiscount = roundtripDiscount + groupDiscount + promoDiscount
+    const total = Math.max(0, subtotal - totalDiscount)
+    const cashback = Math.round(total * 0.03) // 3% SkyPoints cashback
+
     return {
-      baseFarePerPax,
-      totalBaseFare,
+      outboundBase,
+      returnBase: returnBaseRaw,
+      totalBaseFare: outboundBase + returnBaseRaw,
+      roundtripDiscount,
+      groupDiscount,
+      groupPercent,
+      promoDiscount,
+      totalDiscount,
       seatsFee,
       baggageFee,
-      total: totalBaseFare + seatsFee + baggageFee,
+      subtotal,
+      total,
+      cashback,
     }
-  }, [flight, cabinClassParam, passengers])
+  }, [flight, returnFlight, cabinClassParam, passengers, appliedPromo])
 
   // Validation: Check if Step 1 is complete
   const isPassengerComplete = (p: PassengerData) => {
@@ -353,6 +462,8 @@ export default function BookingDetail() {
       const res: any = await api.post('/bookings', {
         flight_schedule_id: Number(id),
         passengers: payloadPassengers,
+        promo_code: appliedPromo?.code || null,
+        discount_amount: pricing.totalDiscount || 0,
       })
 
       const bookingData = res?.data?.data || res?.data
@@ -394,6 +505,8 @@ export default function BookingDetail() {
 
   const firstSeg = flight?.segments?.[0]
   const lastSeg = flight?.segments?.[flight?.segments?.length - 1]
+  const retFirstSeg = returnFlight?.segments?.[0]
+  const retLastSeg = returnFlight?.segments?.[returnFlight?.segments?.length - 1]
 
   return (
     <div className="min-h-screen bg-page font-sans text-ink flex flex-col justify-between antialiased">
@@ -528,80 +641,168 @@ export default function BookingDetail() {
           <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
             {/* ════ LEFT COLUMN: Main Form & Interactive Content (760px) ════ */}
             <div className="w-full lg:col-span-8 flex flex-col gap-6">
-              {/* Flight Summary Strip (Stitch B5 & B6) */}
-              {flight && (
-                <div className="bg-raised border border-line rounded-ticket p-5 shadow-xs">
-                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                    <div className="flex items-center gap-3.5">
-                      <AirlineLogo
-                        code={flight.airline?.code}
-                        name={flight.airline?.name}
-                        logo={flight.airline?.logo}
-                        size="md"
-                      />
-                      <div className="flex flex-col">
-                        <div className="flex items-center gap-2">
-                          <span className="font-bold text-ink text-sm">
-                            {flight.airline?.name || 'SkyBook Air'}
-                          </span>
-                          <span className="text-subtle text-xs">•</span>
-                          <span className="text-xs text-subtle font-mono font-semibold">
-                            {flight.flight_number}
-                          </span>
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-tint text-brand-fg">
-                            {cabinClassParam === 'business' ? 'Bisnis' : 'Ekonomi'}
+              {/* Flight Summary Strip: Outbound & Inbound (Stitch B5 & B6) */}
+              <div className="space-y-3">
+                {flight && (
+                  <div className="bg-raised border border-line rounded-ticket p-5 shadow-xs">
+                    {returnFlight && (
+                      <div className="flex items-center gap-2 mb-3 pb-2.5 border-b border-line">
+                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-brand text-white uppercase tracking-wider">
+                          Penerbangan Pergi
+                        </span>
+                        <span className="text-xs text-subtle font-medium">
+                          {getPrimaryCity(firstSeg?.origin?.code)} → {getPrimaryCity(lastSeg?.destination?.code)}
+                        </span>
+                      </div>
+                    )}
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex items-center gap-3.5">
+                        <AirlineLogo
+                          code={flight.airline?.code}
+                          name={flight.airline?.name}
+                          logo={flight.airline?.logo}
+                          size="md"
+                        />
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-ink text-sm">
+                              {flight.airline?.name || 'SkyBook Air'}
+                            </span>
+                            <span className="text-subtle text-xs">•</span>
+                            <span className="text-xs text-subtle font-mono font-semibold">
+                              {flight.flight_number}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-tint text-brand-fg">
+                              {cabinClassParam === 'business' ? 'Bisnis' : 'Ekonomi'}
+                            </span>
+                          </div>
+                          <span className="text-xs text-subtle mt-0.5">
+                            {flight.airplane?.model || 'Boeing 737'}
                           </span>
                         </div>
-                        <span className="text-xs text-subtle mt-0.5">
-                          {flight.airplane?.model || 'Boeing 737'}
-                        </span>
+                      </div>
+
+                      {/* Route and Time */}
+                      <div className="flex items-center gap-4 text-xs justify-between sm:justify-start">
+                        <div className="text-right">
+                          <div className="font-bold text-sm tabular-nums text-ink">
+                            {formatTime(firstSeg?.departure_time)}
+                          </div>
+                          <div className="text-subtle font-semibold">
+                            {getPrimaryCity(firstSeg?.origin?.code)} ({firstSeg?.origin?.code || 'CGK'})
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col items-center px-1">
+                          <span className="text-[10px] text-subtle mb-0.5">
+                            {flight.flight_type === 'transit' ? 'Transit' : 'Langsung'}
+                          </span>
+                          <div className="w-16 h-0.5 bg-line relative flex items-center justify-center">
+                            <span className="material-symbols-outlined text-[12px] text-brand-fg absolute">
+                              east
+                            </span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="font-bold text-sm tabular-nums text-ink">
+                            {formatTime(lastSeg?.arrival_time)}
+                          </div>
+                          <div className="text-subtle font-semibold">
+                            {getPrimaryCity(lastSeg?.destination?.code)} ({lastSeg?.destination?.code || 'DPS'})
+                          </div>
+                        </div>
                       </div>
                     </div>
 
-                    {/* Route and Time */}
-                    <div className="flex items-center gap-4 text-xs justify-between sm:justify-start">
-                      <div className="text-right">
-                        <div className="font-bold text-sm tabular-nums text-ink">
-                          {formatTime(firstSeg?.departure_time)}
-                        </div>
-                        <div className="text-subtle font-semibold">
-                          {firstSeg?.origin?.code || 'CGK'}
-                        </div>
-                      </div>
-
-                      <div className="flex flex-col items-center px-1">
-                        <span className="text-[10px] text-subtle mb-0.5">
-                          {flight.flight_type === 'transit' ? 'Transit' : 'Langsung'}
+                    {/* Revisi data real: flight delay note */}
+                    {flight.delay_minutes > 0 && (
+                      <div className="mt-3 pt-3 border-t border-line text-xs font-semibold text-danger flex items-center gap-1.5">
+                        <span className="material-symbols-outlined text-[16px]">schedule</span>
+                        <span>
+                          Penerbangan tertunda {flight.delay_minutes} menit dari jadwal awal.
                         </span>
-                        <div className="w-16 h-0.5 bg-line relative flex items-center justify-center">
-                          <span className="material-symbols-outlined text-[12px] text-brand-fg absolute">
-                            east
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Inbound Flight Summary (if Round-Trip) */}
+                {returnFlight && (
+                  <div className="bg-raised border border-line rounded-ticket p-5 shadow-xs">
+                    <div className="flex items-center gap-2 mb-3 pb-2.5 border-b border-line">
+                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-600 text-white uppercase tracking-wider">
+                        Penerbangan Pulang
+                      </span>
+                      <span className="text-xs text-subtle font-medium">
+                        {getPrimaryCity(retFirstSeg?.origin?.code)} → {getPrimaryCity(retLastSeg?.destination?.code)}
+                      </span>
+                      <span className="ml-auto px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-600 dark:text-emerald-400">
+                        Hemat 10% Bundle PP
+                      </span>
+                    </div>
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex items-center gap-3.5">
+                        <AirlineLogo
+                          code={returnFlight.airline?.code}
+                          name={returnFlight.airline?.name}
+                          logo={returnFlight.airline?.logo}
+                          size="md"
+                        />
+                        <div className="flex flex-col">
+                          <div className="flex items-center gap-2">
+                            <span className="font-bold text-ink text-sm">
+                              {returnFlight.airline?.name || 'SkyBook Air'}
+                            </span>
+                            <span className="text-subtle text-xs">•</span>
+                            <span className="text-xs text-subtle font-mono font-semibold">
+                              {returnFlight.flight_number}
+                            </span>
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-tint text-brand-fg">
+                              {cabinClassParam === 'business' ? 'Bisnis' : 'Ekonomi'}
+                            </span>
+                          </div>
+                          <span className="text-xs text-subtle mt-0.5">
+                            {returnFlight.airplane?.model || 'Boeing 737'}
                           </span>
                         </div>
                       </div>
 
-                      <div>
-                        <div className="font-bold text-sm tabular-nums text-ink">
-                          {formatTime(lastSeg?.arrival_time)}
+                      {/* Route and Time */}
+                      <div className="flex items-center gap-4 text-xs justify-between sm:justify-start">
+                        <div className="text-right">
+                          <div className="font-bold text-sm tabular-nums text-ink">
+                            {formatTime(retFirstSeg?.departure_time)}
+                          </div>
+                          <div className="text-subtle font-semibold">
+                            {getPrimaryCity(retFirstSeg?.origin?.code)} ({retFirstSeg?.origin?.code || 'DPS'})
+                          </div>
                         </div>
-                        <div className="text-subtle font-semibold">
-                          {lastSeg?.destination?.code || 'DPS'}
+
+                        <div className="flex flex-col items-center px-1">
+                          <span className="text-[10px] text-subtle mb-0.5">
+                            {returnFlight.flight_type === 'transit' ? 'Transit' : 'Langsung'}
+                          </span>
+                          <div className="w-16 h-0.5 bg-line relative flex items-center justify-center">
+                            <span className="material-symbols-outlined text-[12px] text-amber-600 dark:text-amber-400 absolute">
+                              east
+                            </span>
+                          </div>
+                        </div>
+
+                        <div>
+                          <div className="font-bold text-sm tabular-nums text-ink">
+                            {formatTime(retLastSeg?.arrival_time)}
+                          </div>
+                          <div className="text-subtle font-semibold">
+                            {getPrimaryCity(retLastSeg?.destination?.code)} ({retLastSeg?.destination?.code || 'CGK'})
+                          </div>
                         </div>
                       </div>
                     </div>
                   </div>
-
-                  {/* Revisi data real: flight delay note */}
-                  {flight.delay_minutes > 0 && (
-                    <div className="mt-3 pt-3 border-t border-line text-xs font-semibold text-danger flex items-center gap-1.5">
-                      <span className="material-symbols-outlined text-[16px]">schedule</span>
-                      <span>
-                        Penerbangan tertunda {flight.delay_minutes} menit dari jadwal awal.
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )}
+                )}
+              </div>
 
               {/* ════════════ STEP 1: DATA PENUMPANG (B5) ════════════ */}
               {currentStep === 1 && (
@@ -1096,11 +1297,18 @@ export default function BookingDetail() {
             {/* ════ RIGHT COLUMN: Sticky Price Summary Card (360px) ════ */}
             <aside className="w-full lg:col-span-4 sticky top-[90px] bg-raised border border-line rounded-ticket p-5 shadow-sm space-y-4">
               <div className="border-b border-line pb-3">
-                <span className="text-xs font-bold text-subtle uppercase tracking-wider block">
-                  Ringkasan Harga
-                </span>
-                <h3 className="font-bold text-ink text-base mt-0.5">
-                  {flight?.flight_number || 'KA 412'} • {cabinClassParam === 'business' ? 'Bisnis' : 'Ekonomi'}
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold text-subtle uppercase tracking-wider">
+                    Ringkasan Harga
+                  </span>
+                  {isRoundtrip && (
+                    <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-500/10 text-amber-700 dark:text-amber-400 border border-amber-500/20">
+                      Pulang-Pergi (PP)
+                    </span>
+                  )}
+                </div>
+                <h3 className="font-bold text-ink text-base mt-1">
+                  {flight?.flight_number || 'KA 412'} {returnFlight ? `& ${returnFlight.flight_number}` : ''} • {cabinClassParam === 'business' ? 'Bisnis' : 'Ekonomi'}
                 </h3>
               </div>
 
@@ -1108,12 +1316,62 @@ export default function BookingDetail() {
               <div className="space-y-2 text-xs">
                 <div className="flex items-center justify-between">
                   <span className="text-subtle">
-                    Tarif Tiket ({passengers.length} Penumpang)
+                    Tiket Pergi ({passengers.length} Penumpang)
                   </span>
                   <span className="font-bold text-ink tabular-nums">
-                    {formatRupiah(pricing.totalBaseFare)}
+                    {formatRupiah(pricing.outboundBase)}
                   </span>
                 </div>
+
+                {returnFlight && (
+                  <div className="flex items-center justify-between">
+                    <span className="text-subtle">
+                      Tiket Pulang ({passengers.length} Penumpang)
+                    </span>
+                    <span className="font-bold text-ink tabular-nums">
+                      {formatRupiah(pricing.returnBase)}
+                    </span>
+                  </div>
+                )}
+
+                {/* Diskon Rombongan Berangkat Bareng */}
+                {pricing.groupDiscount > 0 && (
+                  <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 font-medium">
+                    <span className="flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[14px]">group</span>
+                      Diskon Rombongan ({pricing.groupPercent}%)
+                    </span>
+                    <span className="font-bold tabular-nums">
+                      -{formatRupiah(pricing.groupDiscount)}
+                    </span>
+                  </div>
+                )}
+
+                {/* Diskon Pulang Pergi Bundle */}
+                {pricing.roundtripDiscount > 0 && (
+                  <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 font-medium">
+                    <span className="flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[14px]">sync_alt</span>
+                      Diskon Bundle PP (10%)
+                    </span>
+                    <span className="font-bold tabular-nums">
+                      -{formatRupiah(pricing.roundtripDiscount)}
+                    </span>
+                  </div>
+                )}
+
+                {/* Kupon Promo Terpasang */}
+                {appliedPromo && pricing.promoDiscount > 0 && (
+                  <div className="flex items-center justify-between text-emerald-600 dark:text-emerald-400 font-medium">
+                    <span className="flex items-center gap-1">
+                      <span className="material-symbols-outlined text-[14px]">sell</span>
+                      {appliedPromo.label}
+                    </span>
+                    <span className="font-bold tabular-nums">
+                      -{formatRupiah(pricing.promoDiscount)}
+                    </span>
+                  </div>
+                )}
 
                 {pricing.seatsFee > 0 && (
                   <div className="flex items-center justify-between text-amber-700 dark:text-amber-400">
@@ -1141,19 +1399,135 @@ export default function BookingDetail() {
                 </div>
               </div>
 
+              {/* Promo Code Input Box */}
+              <div className="pt-2 border-t border-line space-y-2">
+                <label className="text-xs font-bold text-ink flex items-center justify-between">
+                  <span>Punya Kupon Promo?</span>
+                  {appliedPromo && (
+                    <button
+                      type="button"
+                      onClick={handleRemovePromo}
+                      className="text-[11px] text-danger hover:underline font-semibold cursor-pointer"
+                    >
+                      Hapus
+                    </button>
+                  )}
+                </label>
+
+                {appliedPromo ? (
+                  <div className="p-2.5 rounded-control bg-emerald-500/10 border border-emerald-500/25 flex items-center justify-between text-xs">
+                    <div className="flex items-center gap-2">
+                      <span className="material-symbols-outlined text-emerald-600 dark:text-emerald-400 text-[18px]">
+                        check_circle
+                      </span>
+                      <div>
+                        <div className="font-bold text-emerald-800 dark:text-emerald-300">
+                          {appliedPromo.code}
+                        </div>
+                        <div className="text-[10px] text-emerald-700 dark:text-emerald-400">
+                          {appliedPromo.label}
+                        </div>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={handleRemovePromo}
+                      className="text-subtle hover:text-ink text-xs p-1 cursor-pointer"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Kode promo (cth: SKYBARENG)"
+                      value={promoInput}
+                      onChange={(e) => setPromoInput(e.target.value.toUpperCase())}
+                      className="flex-1 px-3 py-1.5 text-xs rounded-control bg-panel border border-line focus:border-brand focus:outline-none uppercase font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleApplyPromo()}
+                      className="px-3 py-1.5 bg-brand hover:bg-brand-hover text-white rounded-control text-xs font-semibold cursor-pointer shrink-0 transition-colors"
+                    >
+                      Pakai
+                    </button>
+                  </div>
+                )}
+
+                {promoMessage && (
+                  <p
+                    className={`text-[11px] ${
+                      promoMessage.isError
+                        ? 'text-danger font-medium'
+                        : 'text-emerald-600 dark:text-emerald-400 font-semibold'
+                    }`}
+                  >
+                    {promoMessage.text}
+                  </p>
+                )}
+
+                {/* Promo Voucher Quick Suggestions */}
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  {passengers.length >= 2 && (
+                    <button
+                      type="button"
+                      onClick={() => handleApplyPromo('SKYBARENG')}
+                      className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-tint text-brand-fg border border-brand/20 hover:bg-brand hover:text-white transition-colors cursor-pointer"
+                    >
+                      🏷️ SKYBARENG (-Rp 100rb)
+                    </button>
+                  )}
+                  {isRoundtrip && (
+                    <button
+                      type="button"
+                      onClick={() => handleApplyPromo('PPHEMAT')}
+                      className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-tint text-brand-fg border border-brand/20 hover:bg-brand hover:text-white transition-colors cursor-pointer"
+                    >
+                      🏷️ PPHEMAT (-Rp 75rb)
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPromo('TERBANGHEMAT')}
+                    className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-tint text-brand-fg border border-brand/20 hover:bg-brand hover:text-white transition-colors cursor-pointer"
+                  >
+                    🏷️ TERBANGHEMAT (-Rp 50rb)
+                  </button>
+                </div>
+              </div>
+
+              {/* Total Calculation & Cashback */}
               <div className="h-px bg-line" />
 
-              {/* Total Calculation */}
-              <div className="flex items-end justify-between">
-                <div>
-                  <span className="text-[11px] font-bold text-subtle uppercase block">
-                    Total Pembayaran
-                  </span>
-                  <span className="text-lg font-bold text-brand-fg tabular-nums">
-                    {formatRupiah(pricing.total)}
-                  </span>
+              <div className="space-y-2">
+                <div className="flex items-end justify-between">
+                  <div>
+                    <span className="text-[11px] font-bold text-subtle uppercase block">
+                      Total Pembayaran
+                    </span>
+                    <span className="text-xl font-bold text-brand-fg tabular-nums">
+                      {formatRupiah(pricing.total)}
+                    </span>
+                  </div>
+                  <span className="text-[10px] text-subtle">Termasuk semua diskon</span>
                 </div>
-                <span className="text-[10px] text-subtle">Termasuk semua biaya</span>
+
+                {/* Cashback Box */}
+                <div className="p-2.5 rounded-control bg-gradient-to-r from-amber-500/10 via-amber-500/5 to-transparent border border-amber-500/25 flex items-center justify-between text-xs">
+                  <div className="flex items-center gap-2">
+                    <span className="text-base">🎁</span>
+                    <div>
+                      <span className="font-bold text-amber-900 dark:text-amber-300 block">
+                        Cashback +{formatRupiah(pricing.cashback)} SkyPoints
+                      </span>
+                      <span className="text-[10px] text-subtle">
+                        3% dari total transaksi, dikreditkan otomatis
+                      </span>
+                    </div>
+                  </div>
+                </div>
               </div>
 
               {/* Guarantees Box */}
