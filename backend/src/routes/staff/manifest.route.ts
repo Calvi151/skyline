@@ -15,6 +15,7 @@ import {
   checkIns,
 } from '../../db/schema.js'
 import { authMiddleware, requireRole } from '../../middleware/auth.middleware.js'
+import { getCachedAirportsMap } from '../../lib/masterDataCache.js'
 import type { UserContext } from '../../types/index.js'
 
 const staffManifestRoute = new Hono<{
@@ -127,8 +128,8 @@ staffManifestRoute.get('/flights/:id/manifest', async (c) => {
     )
   }
 
-  const [allAirports, [airline], [airplane], segments] = await Promise.all([
-    db.select().from(airports),
+  const [airportMap, [airline], [airplane], segments] = await Promise.all([
+    getCachedAirportsMap(),
     schedule.airlineId
       ? db.select().from(airlines).where(eq(airlines.id, schedule.airlineId)).limit(1)
       : [null],
@@ -142,7 +143,6 @@ staffManifestRoute.get('/flights/:id/manifest', async (c) => {
       .orderBy(asc(flightSegments.segmentOrder)),
   ])
 
-  const airportMap = new Map(allAirports.map((a) => [a.id, a]))
   const firstSeg = segments[0]
   const lastSeg = segments[segments.length - 1]
   const orig = firstSeg ? airportMap.get(firstSeg.originAirportId!) : null
@@ -318,6 +318,9 @@ staffManifestRoute.get('/flights/:id/manifest', async (c) => {
     pax.seq_number = (idx + 1).toString().padStart(3, '0')
   })
 
+  const GATES = ['Gate 14', 'Gate 22', 'Gate 12B', 'Gate 18', 'Gate 7', 'Gate 11']
+  const flightGate = GATES[(schedule.id - 1) % GATES.length]
+
   return c.json({
     error: false,
     data: manifestList,
@@ -339,7 +342,7 @@ staffManifestRoute.get('/flights/:id/manifest', async (c) => {
       departure_time: firstSeg ? firstSeg.departureTime.toISOString() : null,
       arrival_time: lastSeg ? lastSeg.arrivalTime.toISOString() : null,
       terminal: orig?.code === 'CGK' ? 'Terminal 3 (Domestik)' : 'Terminal 1',
-      gate: 'Gate 14',
+      gate: flightGate,
       captain_name: 'Capt. Hendra Wijaya',
       purser_name: 'Sarah Anggraini',
       dispatcher_name: 'Rizky Pratama (FOO #8492)',
@@ -528,8 +531,7 @@ staffManifestRoute.post('/verify-boarding', async (c) => {
     .where(eq(flightSegments.flightScheduleId, schedule.id))
     .orderBy(asc(flightSegments.segmentOrder))
 
-  const allAirports = await db.select().from(airports)
-  const airportMap = new Map(allAirports.map((a) => [a.id, a]))
+  const airportMap = await getCachedAirportsMap()
   const firstSeg = segments[0]
   const lastSeg = segments[segments.length - 1]
   const orig = firstSeg ? airportMap.get(firstSeg.originAirportId!) : null

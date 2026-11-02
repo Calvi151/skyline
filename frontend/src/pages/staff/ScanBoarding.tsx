@@ -2,6 +2,8 @@ import { useState, useEffect, useRef } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { api } from '../../lib/api'
 import StaffLayout from '../../components/layout/StaffLayout'
+import { useStaffStore } from '../../store/staffStore'
+import { broadcastStaffEvent, subscribeStaffEvents } from '../../lib/staffEvents'
 
 interface FlightScheduleItem {
   id: number
@@ -55,10 +57,22 @@ interface ScanLogItem {
 export default function ScanBoarding() {
   const [searchParams, setSearchParams] = useSearchParams()
   const flightIdParam = searchParams.get('flightId')
-  const [selectedFlightId, setSelectedFlightId] = useState<string>(flightIdParam || 'all')
+  const {
+    selectedFlightId: storedFlightId,
+    setSelectedFlightId: setStoreFlightId,
+    setSelectedGate,
+    cachedFlights,
+    setCachedFlights,
+  } = useStaffStore()
 
-  const [flights, setFlights] = useState<FlightScheduleItem[]>([])
-  const [loadingFlights, setLoadingFlights] = useState(false)
+  // Prioritas ID penerbangan: dari query param -> dari staffStore -> 'all'
+  const initialFlightId = flightIdParam || (storedFlightId ? String(storedFlightId) : 'all')
+  const [selectedFlightId, setSelectedFlightId] = useState<string>(initialFlightId)
+
+  // SWR: Inisialisasi dari cachedFlights untuk load instan 0ms
+  const [flights, setFlights] = useState<FlightScheduleItem[]>(cachedFlights)
+  const [loadingFlights, setLoadingFlights] = useState(cachedFlights.length === 0)
+  const [lastRefreshed, setLastRefreshed] = useState<string>('')
 
   const [inputCode, setInputCode] = useState('')
   const [loading, setLoading] = useState(false)
@@ -80,28 +94,54 @@ export default function ScanBoarding() {
   useEffect(() => {
     if (flightIdParam) {
       setSelectedFlightId(flightIdParam)
-    } else {
-      setSelectedFlightId('all')
     }
   }, [flightIdParam])
 
-  // Fetch all flight schedules to populate flight selector & dynamic banner
-  useEffect(() => {
-    const fetchFlights = async () => {
-      setLoadingFlights(true)
-      try {
-        const res = await api.get<{ error: boolean; data: FlightScheduleItem[] }>('/staff/flights?date=all')
-        if (res.data?.data) {
-          setFlights(res.data.data)
-        }
-      } catch (err) {
-        console.error('Gagal mengambil daftar penerbangan untuk scanner:', err)
-      } finally {
-        setLoadingFlights(false)
+  const fetchFlights = async (isBackground = false) => {
+    if (!isBackground) setLoadingFlights(true)
+    try {
+      const res = await api.get<{ error: boolean; data: FlightScheduleItem[] }>('/staff/flights?date=all')
+      if (res.data?.data) {
+        setFlights(res.data.data)
+        setCachedFlights(res.data.data)
       }
+      const now = new Date()
+      setLastRefreshed(
+        now.toLocaleTimeString('id-ID', { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' WIB'
+      )
+    } catch (err) {
+      console.error('Gagal mengambil daftar penerbangan untuk scanner:', err)
+    } finally {
+      if (!isBackground) setLoadingFlights(false)
     }
+  }
 
-    fetchFlights()
+  // Real-time polling daftar penerbangan setiap 3 detik + refetch saat window focus & event broadcast
+  useEffect(() => {
+    fetchFlights(false)
+
+    // Polling setiap 3 detik hanya ketika tab sedang dilihat
+    const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchFlights(true)
+      }
+    }, 3000)
+
+    const handleFocus = () => fetchFlights(true)
+    window.addEventListener('focus', handleFocus)
+
+    // Dengarkan event realtime (misal update manifest atau checkin baru)
+    const unsubscribe = subscribeStaffEvents((event) => {
+      if (event.type === 'BOARDING_STATUS_CHANGED' || event.type === 'FLIGHT_UPDATED' || event.type === 'REFRESH_ALL') {
+        fetchFlights(true)
+      }
+    })
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', handleFocus)
+      unsubscribe()
+    }
   }, [])
 
   // Auto-focus barcode input
@@ -167,16 +207,33 @@ export default function ScanBoarding() {
     }
   }, [isCameraActive, loading])
 
+  // Categorize flights (departing vs completed)
+  const isFlightCompleted = (f?: FlightScheduleItem | null) => {
+    if (!f?.departure_time) return false
+    const dep = new Date(f.departure_time).getTime()
+    return Date.now() - dep > 3 * 3600 * 1000
+  }
+
   // Active flight context
   const activeFlight = flights.find((f) => f.id === Number(selectedFlightId))
+  const isCancelled = activeFlight?.status === 'cancelled'
+  const isCompleted = isFlightCompleted(activeFlight)
+  const isGateInactive = selectedFlightId !== 'all' && (isCancelled || isCompleted)
 
   // Handle flight selector change
   const handleFlightSelectChange = (newId: string) => {
     setSelectedFlightId(newId)
     if (newId === 'all') {
       setSearchParams({})
+      setStoreFlightId(null)
     } else {
       setSearchParams({ flightId: newId })
+      const num = Number(newId)
+      setStoreFlightId(num)
+      const found = flights.find((f) => f.id === num)
+      if (found && (found as any).gate) {
+        setSelectedGate((found as any).gate)
+      }
     }
     setScanResult({ status: 'idle' })
     inputRef.current?.focus()
@@ -184,6 +241,8 @@ export default function ScanBoarding() {
 
   // Handle Verify Boarding
   const handleVerify = async (codeToVerify?: string) => {
+    if (isGateInactive) return
+
     const raw = (codeToVerify || inputCode).trim()
     if (!raw) return
 
@@ -225,6 +284,16 @@ export default function ScanBoarding() {
         },
         ...prev.slice(0, 4),
       ])
+
+      // Broadcast update realtime ke seluruh tab staf
+      broadcastStaffEvent({
+        type: 'BOARDING_STATUS_CHANGED',
+        flightId: passengerData.flight_schedule_id,
+        checkInId: passengerData.check_in_id,
+      })
+
+      // Refresh data flights agar statistik penumpang naik terupdate seketika
+      fetchFlights(true)
 
       const airlineInfo = passengerData.airline?.name ? `${passengerData.airline.name} ` : ''
       setToastMessage(
@@ -360,17 +429,25 @@ export default function ScanBoarding() {
                 className="h-9 px-3 rounded-control bg-panel border border-line text-xs font-semibold text-ink focus:outline-none focus:ring-2 focus:ring-brand-fg shadow-xs cursor-pointer disabled:opacity-60"
               >
                 <option value="all">🌐 Semua Maskapai (Auto-Detect Universal)</option>
-                {flights.map((f) => (
-                  <option key={f.id} value={String(f.id)}>
-                    {f.airline?.name || 'Maskapai'} {f.flight_number} • {f.origin?.code} → {f.destination?.code} ({formatTimeStr(f.departure_time)})
-                  </option>
-                ))}
+                {flights.map((f) => {
+                  const isDone = isFlightCompleted(f)
+                  const isCanc = f.status === 'cancelled'
+                  const inactive = isDone || isCanc
+                  const gateLabel = (f as any).gate || `Gate ${((f.id - 1) % 6) + 1}`
+                  return (
+                    <option key={f.id} value={String(f.id)} disabled={inactive}>
+                      {f.airline?.name || 'Maskapai'} {f.flight_number} • {gateLabel} • {f.origin?.code} → {f.destination?.code} ({formatTimeStr(f.departure_time)})
+                      {inactive ? ` (Gerbang Nonaktif - ${isCanc ? 'Dibatalkan' : 'Selesai'})` : ' (Gerbang Aktif)'}
+                    </option>
+                  )
+                })}
               </select>
             </div>
 
             <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-tint text-brand-fg font-semibold uppercase tracking-wider text-[11px] shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
-              <span>{selectedFlightId === 'all' ? 'Auto-Detect Aktif' : 'Gate Lock Aktif'}</span>
+              <span>{selectedFlightId === 'all' ? 'Auto-Detect Aktif' : isGateInactive ? 'Gerbang Nonaktif' : 'Gate Lock Aktif'}</span>
+              <span className="text-[10px] text-subtle font-mono lowercase">({lastRefreshed || 'live'})</span>
             </span>
           </div>
         </div>
@@ -413,7 +490,9 @@ export default function ScanBoarding() {
                       {activeFlight.status === 'delayed'
                         ? `Tertunda ${activeFlight.delay_minutes} Menit`
                         : activeFlight.status === 'cancelled'
-                        ? 'Dibatalkan'
+                        ? 'Gerbang Nonaktif (Dibatalkan)'
+                        : isCompleted
+                        ? 'Gerbang Ditutup (Selesai)'
                         : 'Pintu Gerbang Dibuka'}
                     </span>
                   </span>
@@ -462,6 +541,28 @@ export default function ScanBoarding() {
           </div>
         </div>
 
+        {/* ─── OPERATIONAL ALERT: GERBANG NONAKTIF / DITUTUP ─── */}
+        {isGateInactive && (
+          <div className="bg-danger/10 border border-danger/30 rounded-ticket p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-danger shadow-xs">
+            <div className="flex items-center gap-2.5">
+              <span className="material-symbols-outlined text-[24px]">block</span>
+              <div>
+                <span className="font-bold text-sm block">Gerbang Tidak Aktif / Ditutup</span>
+                <span>
+                  Penerbangan {activeFlight?.flight_number} {isCancelled ? 'telah dibatalkan' : 'telah selesai/berangkat'}. Gerbang ini sedang nonaktif dan tidak melayani pemindaian boarding.
+                </span>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={() => handleFlightSelectChange('all')}
+              className="px-3.5 py-2 rounded-control bg-danger text-white font-semibold text-xs shrink-0 self-start sm:self-auto hover:bg-danger/90 transition-colors shadow-xs"
+            >
+              Beralih ke Auto-Detect Universal
+            </button>
+          </div>
+        )}
+
         {/* ─── MAIN 2-COLUMN BOARDING SCANNER ENGINE ─── */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
           {/* ── LEFT COLUMN: SCANNER INPUT & VIEWFINDER ── */}
@@ -472,8 +573,16 @@ export default function ScanBoarding() {
                 <label htmlFor="barcode-input" className="text-xs font-bold text-ink">
                   Kode Boarding Pass atau Kode Booking (PNR)
                 </label>
-                <span className="text-[10px] uppercase font-bold text-brand-fg tracking-wider bg-tint px-2 py-0.5 rounded">
-                  {selectedFlightId === 'all' ? 'Auto-Detect Universal' : 'Gate Locked'}
+                <span className={`text-[10px] uppercase font-bold tracking-wider px-2 py-0.5 rounded ${
+                  isGateInactive
+                    ? 'bg-danger/15 text-danger'
+                    : 'bg-tint text-brand-fg'
+                }`}>
+                  {selectedFlightId === 'all'
+                    ? 'Auto-Detect Universal'
+                    : isGateInactive
+                    ? 'Gerbang Nonaktif'
+                    : 'Gate Locked'}
                 </span>
               </div>
 
@@ -486,11 +595,20 @@ export default function ScanBoarding() {
                     ref={inputRef}
                     id="barcode-input"
                     type="text"
+                    disabled={isGateInactive || loading}
                     value={inputCode}
                     onChange={(e) => setInputCode(e.target.value)}
                     onKeyDown={handleKeyDown}
-                    placeholder="Contoh: BP-9JFCSZ-1-XYZ atau 9JFCSZ"
-                    className="w-full h-12 pl-11 pr-9 rounded-control bg-panel border-2 border-brand text-ink text-sm font-mono tracking-wider focus:outline-none focus:ring-4 focus:ring-brand/10 transition-all font-bold uppercase"
+                    placeholder={
+                      isGateInactive
+                        ? 'Gerbang nonaktif. Pemindaian dinonaktifkan.'
+                        : 'Contoh: BP-9JFCSZ-1-XYZ atau 9JFCSZ'
+                    }
+                    className={`w-full h-12 pl-11 pr-9 rounded-control border-2 text-ink text-sm font-mono tracking-wider focus:outline-none transition-all font-bold uppercase ${
+                      isGateInactive
+                        ? 'bg-raised/70 border-line text-subtle cursor-not-allowed'
+                        : 'bg-panel border-brand focus:ring-4 focus:ring-brand/10'
+                    }`}
                   />
                   {inputCode && (
                     <button
@@ -504,9 +622,9 @@ export default function ScanBoarding() {
                 </div>
                 <button
                   type="button"
-                  disabled={loading || !inputCode.trim()}
+                  disabled={isGateInactive || loading || !inputCode.trim()}
                   onClick={() => handleVerify()}
-                  className="h-12 px-6 rounded-control bg-brand hover:bg-brand-hover text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-[0.98] disabled:opacity-50"
+                  className="h-12 px-6 rounded-control bg-brand hover:bg-brand-hover text-white text-xs font-semibold flex items-center justify-center gap-1.5 shadow-xs transition-all active:scale-[0.98] disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {loading ? (
                     <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -587,9 +705,13 @@ export default function ScanBoarding() {
                 </div>
                 <button
                   type="button"
+                  disabled={isGateInactive}
                   onClick={() => setIsCameraActive(!isCameraActive)}
+                  title={isGateInactive ? 'Gerbang nonaktif. Kamera dinonaktifkan.' : ''}
                   className={`h-9 px-3.5 rounded-control font-semibold text-xs flex items-center gap-1.5 transition-colors ${
-                    isCameraActive
+                    isGateInactive
+                      ? 'bg-raised text-subtle opacity-50 cursor-not-allowed border border-line'
+                      : isCameraActive
                       ? 'bg-danger/10 text-danger hover:bg-danger/20'
                       : 'bg-tint text-brand-fg hover:bg-brand hover:text-white'
                   }`}

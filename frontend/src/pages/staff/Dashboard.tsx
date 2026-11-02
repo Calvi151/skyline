@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
 import StaffLayout from '../../components/layout/StaffLayout'
+import { useStaffStore } from '../../store/staffStore'
+import { subscribeStaffEvents } from '../../lib/staffEvents'
 
 interface FlightItem {
   id: number
@@ -13,6 +15,8 @@ interface FlightItem {
   destination: { code: string; city: string; name: string } | null
   departure_time: string | null
   arrival_time: string | null
+  terminal?: string
+  gate?: string
   status: 'scheduled' | 'delayed' | 'cancelled'
   delay_minutes: number
   checked_in_count: number
@@ -21,13 +25,26 @@ interface FlightItem {
   total_capacity: number
 }
 
+const AVAILABLE_GATES = ['Gate 14', 'Gate 22', 'Gate 12B', 'Gate 18', 'Gate 7', 'Gate 11']
+
 export default function StaffDashboard() {
   const navigate = useNavigate()
-  const [flights, setFlights] = useState<FlightItem[]>([])
-  const [loading, setLoading] = useState(true)
+  const {
+    selectedFlightId,
+    setSelectedFlightId,
+    selectedGate: storeGate,
+    setSelectedGate: setStoreGate,
+    cachedFlights,
+    setCachedFlights,
+  } = useStaffStore()
+
+  // SWR: Gunakan cache memori jika ada untuk rendering instan 0ms tanpa lag
+  const [flights, setFlights] = useState<FlightItem[]>(cachedFlights)
+  const [loading, setLoading] = useState(cachedFlights.length === 0)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [activeTab, setActiveTab] = useState<'all' | 'departing' | 'completed'>('all')
-  const [selectedGate, setSelectedGate] = useState<string>('all')
+  const [selectedGate, setSelectedGate] = useState<string>(storeGate || 'all')
   const [lastRefreshed, setLastRefreshed] = useState<string>('')
   const [toastNotification, setToastNotification] = useState<{
     gate: string
@@ -39,12 +56,14 @@ export default function StaffDashboard() {
     desc: 'Penerbangan KA 412 siap untuk verifikasi boarding penumpang.',
   })
 
-  const fetchFlights = async () => {
-    setLoading(true)
+  const fetchFlights = async (isBackground = false) => {
+    if (!isBackground && flights.length === 0) setLoading(true)
+    setIsRefreshing(true)
     try {
       const res = await api.get<{ error: boolean; data: FlightItem[] }>('/staff/flights?date=all')
       if (res.data?.data) {
         setFlights(res.data.data)
+        setCachedFlights(res.data.data)
       }
       const now = new Date()
       setLastRefreshed(
@@ -53,16 +72,40 @@ export default function StaffDashboard() {
     } catch (err) {
       console.error('Gagal mengambil daftar penerbangan staf:', err)
     } finally {
-      setLoading(false)
+      if (!isBackground) setLoading(false)
+      setIsRefreshing(false)
     }
   }
 
+  // Real-time polling setiap 3 detik + refetch saat focus / event bus
   useEffect(() => {
-    fetchFlights()
+    fetchFlights(false)
+
+    // Polling setiap 3 detik hanya ketika tab sedang aktif/dilihat
     const interval = setInterval(() => {
-      fetchFlights()
-    }, 30000)
-    return () => clearInterval(interval)
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchFlights(true)
+      }
+    }, 3000)
+
+    // Refetch saat window kembali fokus
+    const handleFocus = () => {
+      fetchFlights(true)
+    }
+    window.addEventListener('focus', handleFocus)
+
+    // Dengarkan event realtime antar-tab / window (misal scanner scan boarding pass)
+    const unsubscribe = subscribeStaffEvents((event) => {
+      if (event.type === 'BOARDING_STATUS_CHANGED' || event.type === 'FLIGHT_UPDATED' || event.type === 'REFRESH_ALL') {
+        fetchFlights(true)
+      }
+    })
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', handleFocus)
+      unsubscribe()
+    }
   }, [])
 
   // Helper formats
@@ -88,10 +131,9 @@ export default function StaffDashboard() {
     return `${h}j ${m > 0 ? `${m}m` : ''}`
   }
 
-  // Derive pseudo gates deterministically from id
+  // Derive pseudo gates deterministically from id (jika backend belum memberikan)
   const getGateForFlight = (flightId: number) => {
-    const gates = ['Gate 14', 'Gate 22', 'Gate 12B', 'Gate 18', 'Gate 7', 'Gate 11']
-    return gates[(flightId - 1) % gates.length]
+    return AVAILABLE_GATES[(flightId - 1) % AVAILABLE_GATES.length]
   }
 
   // Categorize flights (departing vs completed)
@@ -102,6 +144,15 @@ export default function StaffDashboard() {
     return now - dep > 3 * 3600 * 1000 // > 3 hours after departure
   }
 
+  // Pemeriksaan apakah sebuah gerbang aktif (memiliki minimal 1 penerbangan yang belum selesai dan tidak dibatalkan)
+  const isGateActive = (gateName: string) => {
+    if (gateName === 'all') return true
+    return flights.some((f) => {
+      const g = f.gate || getGateForFlight(f.id)
+      return g === gateName && f.status !== 'cancelled' && !isFlightCompleted(f)
+    })
+  }
+
   // Filtered flights
   const filteredFlights = useMemo(() => {
     return flights.filter((f) => {
@@ -109,7 +160,7 @@ export default function StaffDashboard() {
       if (activeTab === 'departing' && isCompleted) return false
       if (activeTab === 'completed' && !isCompleted) return false
 
-      const gate = getGateForFlight(f.id)
+      const gate = f.gate || getGateForFlight(f.id)
       if (selectedGate !== 'all' && gate !== selectedGate) return false
 
       if (searchQuery.trim()) {
@@ -142,7 +193,7 @@ export default function StaffDashboard() {
   }).format(new Date())
 
   return (
-    <StaffLayout activeFlightId={flights[0]?.id || 1}>
+    <StaffLayout activeFlightId={selectedFlightId || flights[0]?.id || null}>
       <div className="max-w-[1240px] mx-auto px-4 sm:px-6 py-6 sm:py-8">
         {/* ─── TOP OPERATIONAL CONTROL PANEL ─── */}
         <div className="flex flex-col gap-4 mb-6">
@@ -231,21 +282,44 @@ export default function StaffDashboard() {
               <span className="shrink-0 font-semibold uppercase tracking-wider text-[11px] text-subtle">
                 Gerbang Cepat:
               </span>
-              {['all', 'Gate 14', 'Gate 22', 'Gate 12B', 'Gate 18'].map((gate) => {
-                const label = gate === 'all' ? 'Semua' : gate === 'Gate 14' ? 'Gate 14 (Aktif)' : gate
+              {['all', ...AVAILABLE_GATES].map((gate) => {
+                const isAll = gate === 'all'
+                const active = isAll || isGateActive(gate)
                 const isSelected = selectedGate === gate
+
+                const label = isAll
+                  ? 'Semua Gerbang'
+                  : active
+                  ? `${gate} (Aktif)`
+                  : `${gate} (Nonaktif)`
+
                 return (
                   <button
                     key={gate}
                     type="button"
-                    onClick={() => setSelectedGate(gate)}
-                    className={`px-2.5 py-1 rounded border transition-colors tabular-nums font-medium ${
-                      isSelected
-                        ? 'bg-brand text-white border-brand'
+                    disabled={!active}
+                    onClick={() => {
+                      if (!active) return
+                      setSelectedGate(gate)
+                      setStoreGate(gate)
+                    }}
+                    title={
+                      !active
+                        ? `Gerbang ${gate} sedang nonaktif karena tidak ada penerbangan aktif hari ini.`
+                        : `Filter penerbangan di ${gate}`
+                    }
+                    className={`px-2.5 py-1 rounded border transition-colors tabular-nums font-medium flex items-center gap-1.5 ${
+                      !active
+                        ? 'opacity-40 cursor-not-allowed bg-raised border-line/50 text-subtle line-through'
+                        : isSelected
+                        ? 'bg-brand text-white border-brand shadow-xs'
                         : 'bg-panel border-line text-ink hover:bg-tint'
                     }`}
                   >
-                    {label}
+                    {active && !isAll && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse shrink-0" />
+                    )}
+                    <span>{label}</span>
                   </button>
                 )
               })}
@@ -253,8 +327,8 @@ export default function StaffDashboard() {
           </div>
         </div>
 
-        {/* ─── OPERATIONAL KPI METRIC HORIZON BAR ─── */}
-        <div className="w-full bg-raised border border-line px-4 py-3 rounded-ticket mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-2 text-ink text-xs shadow-xs">
+        {/* ─── LIVE REALTIME METRICS HORIZON BAR ─── */}
+        <div className="w-full bg-raised border border-line px-4 py-3 rounded-ticket mb-6 flex flex-col md:flex-row items-start md:items-center justify-between gap-3 text-ink text-xs shadow-xs">
           <div className="flex items-center gap-2">
             <span className="material-symbols-outlined text-brand-fg text-[20px]">analytics</span>
             <span>
@@ -263,15 +337,41 @@ export default function StaffDashboard() {
               <strong>{occupancyPercent}% okupansi</strong>), {totalCheckedIn} selesai check-in.
             </span>
           </div>
-          <div className="flex items-center gap-4 text-subtle shrink-0 tabular-nums">
-            <span className="flex items-center gap-1.5 font-medium">
-              <span className="w-2 h-2 rounded-full bg-success" />
-              {onTimeCount} Tepat Waktu
-            </span>
-            <span className="flex items-center gap-1.5 font-medium">
-              <span className="w-2 h-2 rounded-full bg-danger" />
-              {delayedCount} Tertunda
-            </span>
+
+          <div className="flex items-center gap-3 self-end md:self-auto shrink-0 flex-wrap">
+            <div className="flex items-center gap-3 text-subtle tabular-nums mr-1">
+              <span className="flex items-center gap-1.5 font-medium">
+                <span className="w-2 h-2 rounded-full bg-success" />
+                {onTimeCount} Tepat Waktu
+              </span>
+              <span className="flex items-center gap-1.5 font-medium">
+                <span className="w-2 h-2 rounded-full bg-danger" />
+                {delayedCount} Tertunda
+              </span>
+            </div>
+
+            {/* Live Real-time Status Badge */}
+            <div className="flex items-center gap-2 bg-panel border border-line px-2.5 py-1 rounded-full text-[11px] font-medium text-ink">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+              </span>
+              <span className="font-semibold text-success">Real-time Aktif</span>
+              <span className="text-subtle">({lastRefreshed || 'Sinkron'})</span>
+            </div>
+
+            {/* Quick Refresh Button */}
+            <button
+              type="button"
+              onClick={() => fetchFlights(false)}
+              disabled={isRefreshing}
+              title="Perbarui data staf sekarang"
+              className="p-1.5 rounded-control bg-panel border border-line hover:bg-tint text-ink transition-colors flex items-center justify-center disabled:opacity-50"
+            >
+              <span className={`material-symbols-outlined text-[16px] ${isRefreshing ? 'animate-spin text-brand' : ''}`}>
+                refresh
+              </span>
+            </button>
           </div>
         </div>
 
@@ -438,9 +538,23 @@ export default function StaffDashboard() {
                     <div className="flex items-center gap-4">
                       <div className="flex flex-col">
                         <span className="text-base font-bold text-ink">{gate}</span>
-                        <span className="text-[10px] uppercase font-semibold text-subtle">
-                          Boarding Gerbang
-                        </span>
+                        <div className="mt-0.5">
+                          {flight.status === 'cancelled' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-danger/10 text-danger border border-danger/20">
+                              <span className="w-1.5 h-1.5 rounded-full bg-danger" />
+                              Gerbang Nonaktif
+                            </span>
+                          ) : isCompleted ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-tint text-subtle border border-line">
+                              Gerbang Ditutup
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-success/10 text-success border border-success/20">
+                              <span className="w-1.5 h-1.5 rounded-full bg-success animate-pulse" />
+                              Gerbang Aktif
+                            </span>
+                          )}
+                        </div>
                       </div>
                       {statusBadge}
                     </div>
@@ -449,22 +563,45 @@ export default function StaffDashboard() {
                     <div className="flex items-center gap-2 shrink-0 pt-2 xl:pt-0">
                       <button
                         type="button"
-                        onClick={() => navigate(`/staff/flights/${flight.id}/manifest`)}
+                        onClick={() => {
+                          setSelectedFlightId(flight.id)
+                          setSelectedGate(gate)
+                          setStoreGate(gate)
+                          navigate(`/staff/flights/${flight.id}/manifest`)
+                        }}
                         className="px-3.5 py-2 rounded-control bg-raised border border-line text-ink hover:bg-tint transition-colors text-xs font-semibold"
+                        title="Buka dokumen manifest penumpang"
                       >
                         Buka manifest
                       </button>
                       <button
                         type="button"
-                        disabled={isCompleted}
-                        onClick={() => navigate(`/staff/scan?flightId=${flight.id}`)}
+                        disabled={isCompleted || flight.status === 'cancelled'}
+                        onClick={() => {
+                          if (isCompleted || flight.status === 'cancelled') return
+                          setSelectedFlightId(flight.id)
+                          setSelectedGate(gate)
+                          setStoreGate(gate)
+                          navigate(`/staff/scan?flightId=${flight.id}`)
+                        }}
+                        title={
+                          flight.status === 'cancelled'
+                            ? 'Gerbang dinonaktifkan (penerbangan dibatalkan)'
+                            : isCompleted
+                            ? 'Gerbang ditutup (penerbangan selesai)'
+                            : 'Buka verifikasi boarding di gerbang'
+                        }
                         className={`px-4 py-2 rounded-control text-xs font-semibold shadow-xs transition-all ${
-                          isCompleted
-                            ? 'bg-raised text-subtle cursor-not-allowed border border-line'
+                          isCompleted || flight.status === 'cancelled'
+                            ? 'bg-raised text-subtle cursor-not-allowed border border-line opacity-60'
                             : 'bg-brand hover:bg-brand-hover text-white active:scale-[0.98]'
                         }`}
                       >
-                        Verifikasi boarding
+                        {flight.status === 'cancelled'
+                          ? 'Gerbang Nonaktif'
+                          : isCompleted
+                          ? 'Penerbangan Selesai'
+                          : 'Verifikasi boarding'}
                       </button>
                     </div>
                   </div>
@@ -484,7 +621,7 @@ export default function StaffDashboard() {
             <span>Pembaruan terakhir: {lastRefreshed || 'Baru saja'}</span>
             <button
               type="button"
-              onClick={fetchFlights}
+              onClick={() => fetchFlights(false)}
               className="text-brand-fg hover:underline font-semibold flex items-center gap-1"
             >
               <span className="material-symbols-outlined text-[16px]">refresh</span>

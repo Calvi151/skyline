@@ -4,6 +4,7 @@ import { db } from '../../db/index.js'
 import { airports, flightSegments } from '../../db/schema.js'
 import { authMiddleware, requireRole } from '../../middleware/auth.middleware.js'
 import { airportSchema } from '../../utils/validators.js'
+import { invalidateMasterDataCache } from '../../lib/masterDataCache.js'
 import type { UserContext } from '../../types/index.js'
 
 const airportsRoute = new Hono<{
@@ -108,6 +109,8 @@ airportsRoute.post('/', async (c) => {
     })
     .returning()
 
+  invalidateMasterDataCache()
+
   return c.json(
     {
       error: false,
@@ -180,6 +183,8 @@ airportsRoute.put('/:id', async (c) => {
     .where(eq(airports.id, id))
     .returning()
 
+  invalidateMasterDataCache()
+
   return c.json({
     error: false,
     data: {
@@ -225,6 +230,7 @@ airportsRoute.delete('/:id', async (c) => {
   }
 
   await db.delete(airports).where(eq(airports.id, id))
+  invalidateMasterDataCache()
 
   return c.json({
     error: false,

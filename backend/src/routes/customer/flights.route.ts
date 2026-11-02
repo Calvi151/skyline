@@ -10,6 +10,7 @@ import {
   seats,
 } from '../../db/schema.js'
 import { ensureAirportInDb, generateSchedulesForRoute } from '../../services/flight-generator.service.js'
+import { getCachedMasterData, getCachedAirportsMap } from '../../lib/masterDataCache.js'
 
 const customerFlightsRoute = new Hono()
 
@@ -128,16 +129,8 @@ customerFlightsRoute.get('/search', async (c) => {
     segmentsBySchedule.set(seg.flightScheduleId!, list)
   }
 
-  // 4. Fetch all airports, airlines, airplanes for enrichment
-  const [allAirports, allAirlines, allAirplanes] = await Promise.all([
-    db.select().from(airports),
-    db.select().from(airlines),
-    db.select().from(airplanes),
-  ])
-
-  const airportMap = new Map(allAirports.map((a) => [a.id, a]))
-  const airlineMap = new Map(allAirlines.map((a) => [a.id, a]))
-  const airplaneMap = new Map(allAirplanes.map((a) => [a.id, a]))
+  // 4. Fetch all airports, airlines, airplanes from in-memory cache (instant 0ms)
+  const { airportMap, airlineMap, airplaneMap } = await getCachedMasterData()
 
   // 5. Filter schedules matching route and departure date
   const matchedSchedules: Array<{
@@ -649,8 +642,7 @@ customerFlightsRoute.get('/:id', async (c) => {
     .orderBy(asc(flightSegments.segmentOrder))
 
   // Fetch airport metadata
-  const allAirports = await db.select().from(airports)
-  const airportMap = new Map(allAirports.map((a) => [a.id, a]))
+  const airportMap = await getCachedAirportsMap()
 
   const enrichedSegments = segmentsList.map((s) => {
     const orig = airportMap.get(s.originAirportId!)

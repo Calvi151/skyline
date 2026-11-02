@@ -4,14 +4,12 @@ import { db } from '../../db/index.js'
 import {
   flightSchedules,
   flightSegments,
-  airports,
-  airlines,
-  airplanes,
   bookings,
   bookingPassengers,
   checkIns,
 } from '../../db/schema.js'
 import { authMiddleware, requireRole } from '../../middleware/auth.middleware.js'
+import { getCachedMasterData } from '../../lib/masterDataCache.js'
 import type { UserContext } from '../../types/index.js'
 
 const staffFlightsRoute = new Hono<{
@@ -46,20 +44,14 @@ staffFlightsRoute.get('/', async (c) => {
   const now = new Date()
   const targetDate = dateParam || formatDateInJakarta(now)
 
-  const [allSchedules, allAirports, allAirlines, allAirplanes] = await Promise.all([
+  const [allSchedules, { airportMap, airlineMap, airplaneMap }] = await Promise.all([
     db.select().from(flightSchedules),
-    db.select().from(airports),
-    db.select().from(airlines),
-    db.select().from(airplanes),
+    getCachedMasterData(),
   ])
 
   if (allSchedules.length === 0) {
     return c.json({ error: false, data: [] })
   }
-
-  const airportMap = new Map(allAirports.map((a) => [a.id, a]))
-  const airlineMap = new Map(allAirlines.map((a) => [a.id, a]))
-  const airplaneMap = new Map(allAirplanes.map((a) => [a.id, a]))
 
   const scheduleIds = allSchedules.map((s) => s.id)
   const allSegments = await db
@@ -178,6 +170,10 @@ staffFlightsRoute.get('/', async (c) => {
       ? (airplane.totalSeatEconomy || 0) + (airplane.totalSeatBusiness || 0)
       : 180
 
+    const GATES = ['Gate 14', 'Gate 22', 'Gate 12B', 'Gate 18', 'Gate 7', 'Gate 11']
+    const gate = GATES[(sched.id - 1) % GATES.length]
+    const terminal = orig?.code === 'CGK' ? 'Terminal 3' : (orig?.code === 'DPS' ? 'Terminal Domestik' : 'Terminal 1')
+
     return {
       id: sched.id,
       flight_number: sched.flightNumber,
@@ -190,6 +186,8 @@ staffFlightsRoute.get('/', async (c) => {
       destination: dest ? { code: dest.code, city: dest.city, name: dest.name } : null,
       departure_time: firstSeg ? firstSeg.departureTime.toISOString() : null,
       arrival_time: lastSeg ? lastSeg.arrivalTime.toISOString() : null,
+      terminal,
+      gate,
       status: sched.status,
       delay_minutes: sched.delayMinutes || 0,
       checked_in_count: stats.checkedInCount,

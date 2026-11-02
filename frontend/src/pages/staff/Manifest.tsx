@@ -1,7 +1,9 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
-import { useParams, Link } from 'react-router-dom'
+import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
 import StaffLayout from '../../components/layout/StaffLayout'
+import { useStaffStore } from '../../store/staffStore'
+import { broadcastStaffEvent, subscribeStaffEvents } from '../../lib/staffEvents'
 
 interface ManifestPassenger {
   id: number
@@ -71,7 +73,21 @@ type FilterType = 'all' | 'boarded' | 'checked_in' | 'not_checked_in' | 'no_show
 
 export default function FlightManifest() {
   const { id } = useParams<{ id: string }>()
-  const flightId = Number(id) || 1
+  const navigate = useNavigate()
+  const {
+    selectedFlightId,
+    setSelectedFlightId,
+    setSelectedGate,
+    cachedFlights,
+    setCachedFlights,
+  } = useStaffStore()
+
+  // SWR: inisialisasi daftar penerbangan dari memory cache jika tersedia
+  const [availableFlights, setAvailableFlights] = useState<any[]>(cachedFlights)
+  const [loadingFlights, setLoadingFlights] = useState(cachedFlights.length === 0)
+
+  // Resolusi ID jadwal penerbangan: dari URL atau dari staffStore atau fallback 1
+  const flightId = Number(id) || selectedFlightId || 1
 
   const [flight, setFlight] = useState<ManifestFlight | null>(null)
   const [manifestList, setManifestList] = useState<ManifestPassenger[]>([])
@@ -125,7 +141,38 @@ export default function FlightManifest() {
     return () => clearInterval(timer)
   }, [])
 
-  // Fetch Manifest
+  // Mengambil daftar semua penerbangan agar staf bisa memilih manifest secara presisi
+  const fetchAvailableFlights = async () => {
+    setLoadingFlights(true)
+    try {
+      const res = await api.get<{ error: boolean; data: any[] }>('/staff/flights?date=all')
+      if (res.data?.data) {
+        const flightList = res.data.data
+        setAvailableFlights(flightList)
+        setCachedFlights(flightList)
+
+        // Jika rute /staff/manifest diakses tanpa :id, arahkan ke penerbangan yang relevan
+        if (!id) {
+          const matched =
+            flightList.find((f: any) => f.id === selectedFlightId) ||
+            flightList.find((f: any) => f.status !== 'cancelled') ||
+            flightList[0]
+
+          if (matched) {
+            setSelectedFlightId(matched.id)
+            if (matched.gate) setSelectedGate(matched.gate)
+            navigate(`/staff/flights/${matched.id}/manifest`, { replace: true })
+          }
+        }
+      }
+    } catch (err) {
+      console.error('Gagal mengambil daftar penerbangan untuk switcher manifest:', err)
+    } finally {
+      setLoadingFlights(false)
+    }
+  }
+
+  // Fetch Manifest data
   const fetchManifest = async (showLoading = true) => {
     if (showLoading) setLoading(true)
     try {
@@ -142,6 +189,12 @@ export default function FlightManifest() {
         if (res.data.summary) {
           setSummary(res.data.summary)
         }
+        if (res.data.flight) {
+          setSelectedFlightId(res.data.flight.id)
+          if (res.data.flight.gate) {
+            setSelectedGate(res.data.flight.gate)
+          }
+        }
       }
     } catch (err) {
       console.error('Gagal mengambil data manifest:', err)
@@ -150,13 +203,47 @@ export default function FlightManifest() {
     }
   }
 
-  // Auto-refresh DCS every 20 seconds
+  // Initial load daftar penerbangan
   useEffect(() => {
+    fetchAvailableFlights()
+  }, [])
+
+  // Auto-refresh DCS setiap 3 detik secara realtime + refetch saat window focus & event broadcast
+  useEffect(() => {
+    if (!flightId) return
     fetchManifest(true)
+
+    // Polling setiap 3 detik hanya saat tab aktif
     const interval = setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'visible') {
+        fetchManifest(false)
+      }
+    }, 3000)
+
+    // Refetch instan saat window kembali ke fokus
+    const handleFocus = () => {
       fetchManifest(false)
-    }, 20000)
-    return () => clearInterval(interval)
+    }
+    window.addEventListener('focus', handleFocus)
+
+    // Dengarkan event realtime (misal verifikasi scan di gate scanner)
+    const unsubscribe = subscribeStaffEvents((event) => {
+      if (
+        event.type === 'BOARDING_STATUS_CHANGED' ||
+        event.type === 'FLIGHT_UPDATED' ||
+        event.type === 'REFRESH_ALL'
+      ) {
+        if (!event.flightId || event.flightId === flightId) {
+          fetchManifest(false)
+        }
+      }
+    })
+
+    return () => {
+      clearInterval(interval)
+      window.removeEventListener('focus', handleFocus)
+      unsubscribe()
+    }
   }, [flightId])
 
   // Update Passenger Status
@@ -175,6 +262,14 @@ export default function FlightManifest() {
           p.id === passenger.id ? { ...p, status: newStatus, checkin_status: newStatus } : p
         )
       )
+
+      // Broadcast update ke tab staf lain secara realtime
+      broadcastStaffEvent({
+        type: 'BOARDING_STATUS_CHANGED',
+        flightId,
+        checkInId: targetId,
+        newStatus,
+      })
 
       // Update counters locally
       setSummary((prev) => {
@@ -281,6 +376,21 @@ export default function FlightManifest() {
     })
   }, [manifestList, activeFilter, searchQuery, sortBy])
 
+  // Optimasi Rendering: Paginasi daftar penumpang agar DOM tidak lag saat render ratusan penumpang
+  const [pageSize, setPageSize] = useState<number>(50)
+  const [currentPage, setCurrentPage] = useState<number>(1)
+
+  useEffect(() => {
+    setCurrentPage(1)
+  }, [activeFilter, searchQuery, sortBy, flightId])
+
+  const totalPages = Math.max(1, Math.ceil(filteredList.length / (pageSize || 1)))
+  const paginatedList = useMemo(() => {
+    if (pageSize === 0) return filteredList // 0 = tampilkan semua
+    const start = (currentPage - 1) * pageSize
+    return filteredList.slice(start, start + pageSize)
+  }, [filteredList, currentPage, pageSize])
+
   // Counts & metrics
   const totalPax = summary.passenger_count || manifestList.length || 1
   const boardedCount = summary.boarded_count
@@ -352,6 +462,75 @@ export default function FlightManifest() {
           </div>
         </div>
 
+        {/* ── Flight Selector & Realtime Switcher Toolbar (Anti-Random Manifest) ── */}
+        <div className="bg-panel border border-line rounded-ticket p-3.5 sm:p-4 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+          <div className="flex items-center gap-3 flex-1 min-w-0">
+            <label htmlFor="manifest-flight-select" className="text-xs font-bold text-ink shrink-0 flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-brand-fg text-[18px]">flight</span>
+              <span>Pilih Manifest Penerbangan:</span>
+            </label>
+            <div className="relative flex-1 max-w-xl">
+              <select
+                id="manifest-flight-select"
+                disabled={loadingFlights}
+                value={String(flightId)}
+                onChange={(e) => {
+                  const newId = Number(e.target.value)
+                  setSelectedFlightId(newId)
+                  navigate(`/staff/flights/${newId}/manifest`)
+                }}
+                className="w-full h-10 px-3.5 pr-8 rounded-control bg-raised border border-line text-xs font-bold text-ink focus:outline-none focus:ring-2 focus:ring-brand/20 shadow-xs cursor-pointer truncate"
+              >
+                {availableFlights.map((f: any) => {
+                  const isCancelled = f.status === 'cancelled'
+                  const isDone = f.departure_time && Date.now() - new Date(f.departure_time).getTime() > 3 * 3600 * 1000
+                  const gateLabel = f.gate || 'Gate 14'
+                  return (
+                    <option key={f.id} value={String(f.id)}>
+                      {f.airline?.name || 'Maskapai'} {f.flight_number} • {f.origin?.code} → {f.destination?.code} ({formatTimeStr(f.departure_time)}) • {gateLabel}
+                      {isCancelled ? ' (Gerbang Nonaktif - Dibatalkan)' : isDone ? ' (Gerbang Ditutup - Selesai)' : ' (Aktif)'}
+                    </option>
+                  )
+                })}
+              </select>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3 shrink-0">
+            <div className="flex items-center gap-2 bg-raised border border-line px-3 py-1.5 rounded-full text-xs font-medium text-ink">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
+              </span>
+              <span className="font-semibold text-success">DCS Real-time Aktif</span>
+              <span className="text-subtle font-mono text-[11px]">({currentClock} WIB)</span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => fetchManifest(false)}
+              disabled={loading}
+              title="Perbarui data manifest sekarang"
+              className="p-2 rounded-control bg-raised border border-line hover:bg-tint text-ink transition-colors flex items-center justify-center disabled:opacity-50"
+            >
+              <span className={`material-symbols-outlined text-[16px] ${loading ? 'animate-spin text-brand' : ''}`}>
+                refresh
+              </span>
+            </button>
+          </div>
+        </div>
+
+        {/* ── Operational Alert: Gerbang Nonaktif jika penerbangan Dibatalkan ── */}
+        {flight?.status === 'cancelled' && (
+          <div className="bg-danger/10 border border-danger/30 rounded-ticket p-4 flex items-center gap-3 text-xs text-danger shadow-xs">
+            <span className="material-symbols-outlined text-[24px]">block</span>
+            <div>
+              <strong className="block font-bold">Gerbang Keberangkatan Dinonaktifkan:</strong>
+              Penerbangan ini berstatus dibatalkan. Gerbang {flight?.gate || 'Gate'} ditutup dan seluruh aksi boarding penumpang dinonaktifkan.
+            </div>
+          </div>
+        )}
+
         {/* ── Flight Operational Control Banner (World-Class Flight Ops Style) ── */}
         <div className="bg-gradient-to-r from-panel via-panel to-raised border border-line rounded-ticket p-5 sm:p-6 shadow-sm flex flex-col gap-5">
           <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-5">
@@ -376,10 +555,17 @@ export default function FlightManifest() {
                   <span className="px-2 py-0.5 rounded-full bg-tint text-brand-fg font-semibold text-[11px] uppercase tracking-wide">
                     {flight?.flight_type || 'Direct Domestik'}
                   </span>
-                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-success/15 border border-success/30 text-success font-semibold text-[11px] uppercase tracking-wider">
-                    <span className="w-1.5 h-1.5 rounded-full bg-success animate-ping" />
-                    <span>BOARDING IN PROGRESS</span>
-                  </div>
+                  {flight?.status === 'cancelled' ? (
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-danger/15 border border-danger/30 text-danger font-semibold text-[11px] uppercase tracking-wider">
+                      <span className="w-1.5 h-1.5 rounded-full bg-danger" />
+                      <span>GERBANG NONAKTIF • DIBATALKAN</span>
+                    </div>
+                  ) : (
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-success/15 border border-success/30 text-success font-semibold text-[11px] uppercase tracking-wider">
+                      <span className="w-1.5 h-1.5 rounded-full bg-success animate-ping" />
+                      <span>BOARDING IN PROGRESS</span>
+                    </div>
+                  )}
                 </div>
 
                 {/* Route String */}
@@ -786,12 +972,17 @@ export default function FlightManifest() {
                       </td>
                     </tr>
                   ) : (
-                    filteredList.map((passenger, index) => {
+                    paginatedList.map((passenger, index) => {
                       const isBoarded = passenger.status === 'boarded'
                       const isCheckedIn = passenger.status === 'checked_in'
                       const isNoShow = passenger.status === 'no_show'
                       const isNotCheckedIn = passenger.status === 'not_checked_in'
                       const isBusiness = passenger.seat_class === 'business'
+                      const seqDisplay =
+                        passenger.seq_number ||
+                        (pageSize > 0 ? (currentPage - 1) * pageSize + index + 1 : index + 1)
+                          .toString()
+                          .padStart(3, '0')
 
                       return (
                         <tr
@@ -802,7 +993,7 @@ export default function FlightManifest() {
                         >
                           {/* SEQ */}
                           <td className="py-3 px-3 text-center text-subtle font-mono text-[11px]">
-                            {passenger.seq_number || (index + 1).toString().padStart(3, '0')}
+                            {seqDisplay}
                           </td>
 
                           {/* Kursi */}
@@ -932,17 +1123,19 @@ export default function FlightManifest() {
                                 <>
                                   <button
                                     type="button"
-                                    disabled={updatingId === passenger.id}
+                                    disabled={updatingId === passenger.id || flight?.status === 'cancelled'}
                                     onClick={() => handleUpdateStatus(passenger, 'boarded')}
-                                    className="px-2.5 py-1 rounded bg-brand hover:bg-brand-hover text-white text-xs font-semibold shadow-xs transition-colors"
+                                    title={flight?.status === 'cancelled' ? 'Gerbang nonaktif karena penerbangan dibatalkan' : 'Tandai penumpang naik pesawat'}
+                                    className="px-2.5 py-1 rounded bg-brand hover:bg-brand-hover text-white text-xs font-semibold shadow-xs transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                   >
                                     Tandai Naik
                                   </button>
                                   <button
                                     type="button"
-                                    disabled={updatingId === passenger.id}
+                                    disabled={updatingId === passenger.id || flight?.status === 'cancelled'}
                                     onClick={() => handleUpdateStatus(passenger, 'no_show')}
-                                    className="px-2 py-1 rounded bg-raised hover:bg-danger/10 text-danger border border-line text-xs font-semibold transition-colors"
+                                    title={flight?.status === 'cancelled' ? 'Gerbang nonaktif karena penerbangan dibatalkan' : 'Tandai penumpang tidak hadir'}
+                                    className="px-2 py-1 rounded bg-raised hover:bg-danger/10 text-danger border border-line text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                   >
                                     No-Show
                                   </button>
@@ -952,9 +1145,10 @@ export default function FlightManifest() {
                               {isBoarded && (
                                 <button
                                   type="button"
-                                  disabled={updatingId === passenger.id}
+                                  disabled={updatingId === passenger.id || flight?.status === 'cancelled'}
                                   onClick={() => handleUpdateStatus(passenger, 'checked_in')}
-                                  className="px-2 py-1 rounded bg-raised hover:bg-tint text-subtle hover:text-ink border border-line text-xs font-semibold transition-colors"
+                                  title={flight?.status === 'cancelled' ? 'Gerbang nonaktif karena penerbangan dibatalkan' : 'Kembalikan status ke gate standby'}
+                                  className="px-2 py-1 rounded bg-raised hover:bg-tint text-subtle hover:text-ink border border-line text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                   Urungkan
                                 </button>
@@ -963,9 +1157,10 @@ export default function FlightManifest() {
                               {isNoShow && (
                                 <button
                                   type="button"
-                                  disabled={updatingId === passenger.id}
+                                  disabled={updatingId === passenger.id || flight?.status === 'cancelled'}
                                   onClick={() => handleUpdateStatus(passenger, 'checked_in')}
-                                  className="px-2.5 py-1 rounded bg-tint hover:bg-brand text-brand-fg hover:text-white text-xs font-semibold transition-colors"
+                                  title={flight?.status === 'cancelled' ? 'Gerbang nonaktif karena penerbangan dibatalkan' : 'Pulihkan status penumpang'}
+                                  className="px-2.5 py-1 rounded bg-tint hover:bg-brand text-brand-fg hover:text-white text-xs font-semibold transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                                 >
                                   Pulihkan
                                 </button>
@@ -986,19 +1181,70 @@ export default function FlightManifest() {
               </table>
             </div>
 
-            {/* Table Footer */}
-            <div className="p-3.5 bg-raised border-t border-line flex flex-col sm:flex-row items-center justify-between gap-2 text-xs text-subtle font-mono">
-              <div className="flex items-center gap-1.5">
+            {/* Table Footer with Performance Pagination */}
+            <div className="p-3.5 bg-raised border-t border-line flex flex-col md:flex-row items-center justify-between gap-3 text-xs text-subtle">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="material-symbols-outlined text-[16px] text-brand-fg">sync</span>
                 <span>
-                  Menampilkan <strong>{filteredList.length}</strong> dari <strong>{manifestList.length}</strong> penumpang terdaftar
+                  Menampilkan{' '}
+                  <strong>
+                    {pageSize === 0
+                      ? `1 - ${filteredList.length}`
+                      : `${Math.min(filteredList.length, (currentPage - 1) * pageSize + 1)} - ${Math.min(
+                          filteredList.length,
+                          currentPage * pageSize
+                        )}`}
+                  </strong>{' '}
+                  dari <strong>{filteredList.length}</strong> penumpang terfilter
                 </span>
-                <span className="hidden md:inline text-line">•</span>
-                <span className="hidden md:inline">Sinkronisasi otomatis DCS aktif</span>
+                <span className="text-line">•</span>
+                <div className="flex items-center gap-1">
+                  <span className="text-[11px]">Per halaman:</span>
+                  {[25, 50, 0].map((sz) => (
+                    <button
+                      key={sz}
+                      type="button"
+                      onClick={() => {
+                        setPageSize(sz)
+                        setCurrentPage(1)
+                      }}
+                      className={`px-2 py-0.5 rounded text-[11px] font-semibold border transition-colors ${
+                        pageSize === sz
+                          ? 'bg-brand text-white border-brand'
+                          : 'bg-panel border-line text-ink hover:bg-tint'
+                      }`}
+                    >
+                      {sz === 0 ? 'Semua' : sz}
+                    </button>
+                  ))}
+                </div>
               </div>
-              <div>
-                Final Boarding Gate 14 • SkyBook DCS v2.4
-              </div>
+
+              {pageSize > 0 && totalPages > 1 && (
+                <div className="flex items-center gap-1.5 self-end md:self-auto">
+                  <button
+                    type="button"
+                    disabled={currentPage === 1}
+                    onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                    className="px-2.5 py-1 rounded bg-panel border border-line text-ink font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-tint flex items-center gap-1"
+                  >
+                    <span className="material-symbols-outlined text-[14px]">chevron_left</span>
+                    <span>Prev</span>
+                  </button>
+                  <span className="px-2 font-mono font-bold text-ink">
+                    {currentPage} / {totalPages}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={currentPage === totalPages}
+                    onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                    className="px-2.5 py-1 rounded bg-panel border border-line text-ink font-semibold disabled:opacity-40 disabled:cursor-not-allowed hover:bg-tint flex items-center gap-1"
+                  >
+                    <span>Next</span>
+                    <span className="material-symbols-outlined text-[14px]">chevron_right</span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         ) : (

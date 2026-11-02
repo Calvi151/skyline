@@ -1,37 +1,52 @@
-import { useEffect } from 'react'
+import { useEffect, lazy, Suspense } from 'react'
 import { BrowserRouter, Routes, Route, Link, Navigate } from 'react-router-dom'
 import { useAuthStore } from '../store/authStore'
 import { ProtectedRoute, RoleRoute } from '../components/auth/ProtectedRoute'
-import Landing from '../pages/customer/Landing'
-import CheckIn from '../pages/customer/CheckIn'
-import AdminDashboard from '../pages/admin/Dashboard'
-import AirportsPage from '../pages/admin/Airports'
-import AirlinesPage from '../pages/admin/Airlines'
-import AirplanesPage from '../pages/admin/Airplanes'
-import BaggageOptionsPage from '../pages/admin/BaggageOptions'
-import FlightsPage from '../pages/admin/Flights'
-import FlightFormPage from '../pages/admin/FlightForm'
-import RefundsPage from '../pages/admin/Refunds'
-import UsersPage from '../pages/admin/Users'
-import StaffDashboard from '../pages/staff/Dashboard'
-import FlightManifest from '../pages/staff/Manifest'
-import ScanBoarding from '../pages/staff/ScanBoarding'
-import Login from '../pages/auth/Login'
-import Register from '../pages/auth/Register'
-import CheckEmail from '../pages/auth/CheckEmail'
-import VerifyEmail from '../pages/auth/VerifyEmail'
-import ComponentsShowcase from '../pages/dev/ComponentsShowcase'
 import Navbar from '../components/layout/Navbar'
 import Footer from '../components/layout/Footer'
-import SearchResults from '../pages/customer/SearchResults'
-import BookingDetail from '../pages/customer/BookingDetail'
-import Checkout from '../pages/customer/Checkout'
-import PaymentResult from '../pages/customer/PaymentResult'
-import MyBookings from '../pages/customer/MyBookings'
-import BookingTicket from '../pages/customer/BookingTicket'
-import MyRefunds from '../pages/customer/MyRefunds'
-import CustomerProfile from '../pages/customer/Profile'
-import AdminProfile from '../pages/admin/Profile'
+
+// ── Code-Splitting: Lazy load semua halaman untuk mempercepat load awal (0 ms lag) ──
+const Landing = lazy(() => import('../pages/customer/Landing'))
+const CheckIn = lazy(() => import('../pages/customer/CheckIn'))
+const AdminDashboard = lazy(() => import('../pages/admin/Dashboard'))
+const AirportsPage = lazy(() => import('../pages/admin/Airports'))
+const AirlinesPage = lazy(() => import('../pages/admin/Airlines'))
+const AirplanesPage = lazy(() => import('../pages/admin/Airplanes'))
+const BaggageOptionsPage = lazy(() => import('../pages/admin/BaggageOptions'))
+const FlightsPage = lazy(() => import('../pages/admin/Flights'))
+const FlightFormPage = lazy(() => import('../pages/admin/FlightForm'))
+const RefundsPage = lazy(() => import('../pages/admin/Refunds'))
+const UsersPage = lazy(() => import('../pages/admin/Users'))
+const StaffDashboard = lazy(() => import('../pages/staff/Dashboard'))
+const FlightManifest = lazy(() => import('../pages/staff/Manifest'))
+const ScanBoarding = lazy(() => import('../pages/staff/ScanBoarding'))
+const Login = lazy(() => import('../pages/auth/Login'))
+const Register = lazy(() => import('../pages/auth/Register'))
+const CheckEmail = lazy(() => import('../pages/auth/CheckEmail'))
+const VerifyEmail = lazy(() => import('../pages/auth/VerifyEmail'))
+const ComponentsShowcase = lazy(() => import('../pages/dev/ComponentsShowcase'))
+const SearchResults = lazy(() => import('../pages/customer/SearchResults'))
+const BookingDetail = lazy(() => import('../pages/customer/BookingDetail'))
+const Checkout = lazy(() => import('../pages/customer/Checkout'))
+const PaymentResult = lazy(() => import('../pages/customer/PaymentResult'))
+const MyBookings = lazy(() => import('../pages/customer/MyBookings'))
+const BookingTicket = lazy(() => import('../pages/customer/BookingTicket'))
+const MyRefunds = lazy(() => import('../pages/customer/MyRefunds'))
+const CustomerProfile = lazy(() => import('../pages/customer/Profile'))
+const AdminProfile = lazy(() => import('../pages/admin/Profile'))
+
+function PageLoadingFallback() {
+  return (
+    <div className="min-h-screen bg-page flex flex-col items-center justify-center p-6 text-ink">
+      <div className="flex flex-col items-center gap-3">
+        <div className="w-8 h-8 border-3 border-brand border-t-transparent rounded-full animate-spin" />
+        <span className="text-[11px] font-semibold text-subtle tracking-wider uppercase">
+          Memuat Halaman...
+        </span>
+      </div>
+    </div>
+  )
+}
 
 /** Redirect kalau sudah login dan coba akses /login atau /register */
 function GuestOnly({ children }: { children: React.ReactNode }) {
@@ -94,7 +109,8 @@ export default function AppRouter() {
 
   return (
     <BrowserRouter>
-      <Routes>
+      <Suspense fallback={<PageLoadingFallback />}>
+        <Routes>
         {/* Public */}
         <Route path="/" element={<Landing />} />
         <Route path="/check-in" element={<CheckIn />} />
@@ -268,6 +284,14 @@ export default function AppRouter() {
           }
         />
         <Route
+          path="/staff/manifest"
+          element={
+            <RoleRoute allowedRoles={['staff', 'admin']}>
+              <FlightManifest />
+            </RoleRoute>
+          }
+        />
+        <Route
           path="/staff/flights/:id/manifest"
           element={
             <RoleRoute allowedRoles={['staff', 'admin']}>
@@ -287,6 +311,7 @@ export default function AppRouter() {
         {/* Catch-all */}
         <Route path="*" element={<NotFound />} />
       </Routes>
+      </Suspense>
     </BrowserRouter>
   )
 }

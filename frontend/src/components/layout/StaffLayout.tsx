@@ -1,6 +1,7 @@
 import React from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
+import { useStaffStore } from '../../store/staffStore'
 import ThemeToggle from '../common/ThemeToggle'
 
 interface StaffLayoutProps {
@@ -12,6 +13,7 @@ export default function StaffLayout({ children, activeFlightId }: StaffLayoutPro
   const location = useLocation()
   const navigate = useNavigate()
   const { user, logout } = useAuthStore()
+  const { selectedFlightId, selectedGate } = useStaffStore()
 
   const handleLogout = async () => {
     try {
@@ -21,16 +23,20 @@ export default function StaffLayout({ children, activeFlightId }: StaffLayoutPro
     }
   }
 
-  const manifestPath = activeFlightId
-    ? `/staff/flights/${activeFlightId}/manifest`
-    : '/staff/flights/1/manifest'
+  // Resolusi rute manifest: prioritaskan activeFlightId prop -> selectedFlightId di store -> /staff/manifest
+  const currentFlightId = activeFlightId || selectedFlightId
+  const manifestPath = currentFlightId
+    ? `/staff/flights/${currentFlightId}/manifest`
+    : '/staff/manifest'
 
   const isPenerbanganActive = location.pathname === '/staff'
   const isManifestActive = location.pathname.includes('/manifest')
   const isScanActive = location.pathname.includes('/scan')
 
-  const staffName = user?.name || 'Ahmad Rizky'
+  const staffName = user?.name || 'Petugas Gate'
   const staffRole = user?.role === 'admin' ? 'Super Admin' : 'Gate Crew'
+
+  const gateDisplay = selectedGate && selectedGate !== 'all' ? selectedGate : 'Gate 14'
 
   return (
     <div className="min-h-screen bg-page text-ink font-sans antialiased flex flex-col justify-between print:min-h-0 print:bg-white print:text-black">
@@ -94,7 +100,7 @@ export default function StaffLayout({ children, activeFlightId }: StaffLayoutPro
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
               </span>
-              <span>DCS Terhubung (CGK-Gate 14)</span>
+              <span>DCS Realtime ({gateDisplay})</span>
             </div>
 
             {/* Theme Toggle */}

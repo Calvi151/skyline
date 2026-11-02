@@ -8,6 +8,7 @@ import RealQrCode from '../../components/common/RealQrCode'
 import LandmarkWatermark from '../../components/common/LandmarkWatermark'
 import { AirlineLogo } from '../../components/common/AirlineLogo'
 import { getDestinationVisual, formatFlightDuration } from '../../lib/destinationMedia'
+import { broadcastStaffEvent } from '../../lib/staffEvents'
 
 interface FlightSegment {
   id: number
@@ -368,6 +369,11 @@ export default function CheckIn() {
         setIssuedBoardingPasses(data.boarding_passes)
         showToast('Check-in online berhasil diselesaikan!')
         window.scrollTo({ top: 0, behavior: 'smooth' })
+
+        // Sinkronisasi realtime ke dashboard staf dan manifest
+        broadcastStaffEvent({
+          type: 'BOARDING_STATUS_CHANGED',
+        })
       } else {
         // Fallback reload
         loadBooking(bookingDetail.booking_code)
