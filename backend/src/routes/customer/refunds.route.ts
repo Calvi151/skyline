@@ -37,6 +37,20 @@ customerRefundsRoute.get('/my', async (c) => {
 })
 
 /**
+ * GET /api/refunds/eligible
+ * Ambil daftar pesanan aktif milik user yang memenuhi syarat untuk diajukan refund
+ */
+customerRefundsRoute.get('/eligible', async (c) => {
+  const userId = c.get('userId')
+  const data = await refundService.getEligibleBookings(userId)
+
+  return c.json({
+    error: false,
+    data,
+  })
+})
+
+/**
  * GET /api/refunds/booking/:bookingId
  * Ambil status refund untuk pesanan tertentu
  */

@@ -347,6 +347,131 @@ export class RefundService {
   }
 
   /**
+   * Mengambil daftar pesanan milik customer yang memenuhi syarat untuk diajukan refund (GET /api/refunds/eligible)
+   * Kriteria kelayakan (Security & Business Logic):
+   * 1. booking.userId === userId (IDOR guard)
+   * 2. booking.status === 'paid'
+   * 3. Tidak ada refund aktif (pending, approved, refunded)
+   * 4. Jadwal penerbangan dibatalkan (disrupsi) ATAU sisa jam terbang >= 6 jam
+   */
+  async getEligibleBookings(userId: number) {
+    const userBookings = await db
+      .select()
+      .from(bookings)
+      .where(and(eq(bookings.userId, userId), eq(bookings.status, 'paid')))
+      .orderBy(desc(bookings.createdAt))
+
+    if (userBookings.length === 0) {
+      return []
+    }
+
+    const bookingIds = userBookings.map((b) => b.id)
+
+    // Cek refund yang sedang aktif
+    const existingRefunds = await db
+      .select({
+        bookingId: refunds.bookingId,
+        status: refunds.status,
+      })
+      .from(refunds)
+      .where(inArray(refunds.bookingId, bookingIds))
+
+    const activeBookingIds = new Set(
+      existingRefunds
+        .filter((r) => r.status === 'pending' || r.status === 'approved' || r.status === 'refunded')
+        .map((r) => r.bookingId),
+    )
+
+    // Ambil data bandara & maskapai untuk konteks tampilan
+    const allAirports = await db.select().from(airports)
+    const airportMap = new Map(allAirports.map((a) => [a.id, a]))
+    const allAirlines = await db.select().from(airlines)
+    const airlineMap = new Map(allAirlines.map((al) => [al.id, al]))
+
+    const now = new Date()
+    const eligibleList = []
+
+    for (const b of userBookings) {
+      if (activeBookingIds.has(b.id)) {
+        continue // Lewati jika sudah ada refund aktif
+      }
+
+      if (!b.flightScheduleId) continue
+
+      const [sched] = await db
+        .select()
+        .from(flightSchedules)
+        .where(eq(flightSchedules.id, b.flightScheduleId))
+        .limit(1)
+
+      if (!sched) continue
+
+      const isFlightCancelled = sched.status === 'cancelled'
+
+      const segs = await db
+        .select()
+        .from(flightSegments)
+        .where(eq(flightSegments.flightScheduleId, sched.id))
+        .orderBy(flightSegments.segmentOrder)
+
+      if (segs.length === 0) continue
+
+      const firstSeg = segs[0]
+      const lastSeg = segs[segs.length - 1]
+      const depTime = new Date(firstSeg.departureTime)
+      const hoursRemaining = (depTime.getTime() - now.getTime()) / (1000 * 60 * 60)
+
+      // Cek apakah memenuhi batas waktu penerbangan (H-6 jam atau penerbangan dibatalkan)
+      if (!isFlightCancelled && hoursRemaining < 6) {
+        continue // Jendela refund sudah tutup
+      }
+
+      const orig = airportMap.get(firstSeg.originAirportId!)
+      const dest = airportMap.get(lastSeg.destinationAirportId!)
+      const airline = sched.airlineId ? airlineMap.get(sched.airlineId) : null
+
+      const bookingCreatedAt = b.createdAt ? new Date(b.createdAt).getTime() : now.getTime()
+      const bookingAgeHours = (now.getTime() - bookingCreatedAt) / (1000 * 60 * 60)
+
+      let cancellationFee = 0
+      let adminFee = 0
+      let estimatedRefundAmount = Number(b.totalPrice)
+      let isCoolingOff = false
+
+      if (isFlightCancelled) {
+        cancellationFee = 0
+        adminFee = 0
+        estimatedRefundAmount = Number(b.totalPrice)
+      } else {
+        cancellationFee = Math.round(Number(b.totalPrice) * 0.2)
+        adminFee = 25000
+        estimatedRefundAmount = Math.max(0, Number(b.totalPrice) - cancellationFee - adminFee)
+        if (bookingAgeHours <= 24 && hoursRemaining >= 24) {
+          isCoolingOff = true
+        }
+      }
+
+      eligibleList.push({
+        booking_id: b.id,
+        booking_code: b.bookingCode,
+        total_price: Number(b.totalPrice),
+        flight_number: sched.flightNumber,
+        airline_name: airline?.name || 'Maskapai',
+        route: `${orig?.code || '---'} → ${dest?.code || '---'} (${orig?.city || ''} ke ${dest?.city || ''})`,
+        departure_time: firstSeg.departureTime.toISOString(),
+        hours_remaining: Math.max(0, Math.round(hoursRemaining)),
+        is_flight_cancelled: isFlightCancelled,
+        is_cooling_off: isCoolingOff,
+        cancellation_fee: cancellationFee,
+        admin_fee: adminFee,
+        estimated_refund_amount: estimatedRefundAmount,
+      })
+    }
+
+    return eligibleList
+  }
+
+  /**
    * Memproses persetujuan / penolakan refund oleh Admin (PUT /api/admin/refunds/:id)
    * Jika disetujui (approved / refunded), status booking menjadi 'refunded' dan kursi dilepaskan.
    * Dilengkapi proteksi keamanan: refund yang sudah disetujui tidak bisa ditolak untuk mencegah inkonsistensi inventaris.

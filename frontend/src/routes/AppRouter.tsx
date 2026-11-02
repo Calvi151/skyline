@@ -29,6 +29,7 @@ import Checkout from '../pages/customer/Checkout'
 import PaymentResult from '../pages/customer/PaymentResult'
 import MyBookings from '../pages/customer/MyBookings'
 import BookingTicket from '../pages/customer/BookingTicket'
+import MyRefunds from '../pages/customer/MyRefunds'
 import CustomerProfile from '../pages/customer/Profile'
 import AdminProfile from '../pages/admin/Profile'
 
@@ -135,6 +136,22 @@ export default function AppRouter() {
           element={
             <ProtectedRoute>
               <BookingTicket />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/my-refunds"
+          element={
+            <ProtectedRoute>
+              <MyRefunds />
+            </ProtectedRoute>
+          }
+        />
+        <Route
+          path="/refunds"
+          element={
+            <ProtectedRoute>
+              <MyRefunds />
             </ProtectedRoute>
           }
         />

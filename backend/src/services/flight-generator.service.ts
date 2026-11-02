@@ -1,3 +1,5 @@
+import fs from 'fs'
+import path from 'path'
 import { eq, and, sql } from 'drizzle-orm'
 import { db } from '../db/index.js'
 import {
@@ -60,6 +62,42 @@ export async function ensureAirportInDb(codeOrCity: string) {
       if (retry) return retry
     } catch (err) {
       console.error('Failed to auto-insert airport:', err)
+    }
+  }
+
+  // 3. Fallback: Cek file master airports.json jika ada kode IATA valid
+  if (/^[A-Z]{3}$/.test(clean)) {
+    try {
+      const jsonPath = path.resolve(process.cwd(), 'airports.json')
+      if (fs.existsSync(jsonPath)) {
+        const raw = JSON.parse(fs.readFileSync(jsonPath, 'utf8'))
+        for (const key of Object.keys(raw)) {
+          const item = raw[key]
+          if (item?.iata?.toUpperCase() === clean) {
+            const [ins] = await db
+              .insert(airports)
+              .values({
+                code: clean,
+                name: (item.name || `Bandara ${clean}`).substring(0, 100),
+                city: (item.city || item.name || clean).substring(0, 100),
+                country: item.country || 'Unknown',
+                timezone: item.tz || 'Asia/Jakarta',
+              })
+              .onConflictDoNothing()
+              .returning()
+            if (ins) return ins
+            const [retry] = await db
+              .select()
+              .from(airports)
+              .where(eq(airports.code, clean))
+              .limit(1)
+            if (retry) return retry
+            break
+          }
+        }
+      }
+    } catch {
+      // Ignore file read error
     }
   }
 

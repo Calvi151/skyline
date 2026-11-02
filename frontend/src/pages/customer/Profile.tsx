@@ -250,7 +250,13 @@ export default function CustomerProfile() {
                           to: '/dashboard',
                           icon: 'confirmation_number',
                           title: 'Pesanan & E-Tiket Saya',
-                          desc: 'Lihat rincian penerbangan, unduh PDF e-tiket, atau ajukan refund online.',
+                          desc: 'Lihat rincian penerbangan, unduh PDF e-tiket, atau cek status reservasi.',
+                        },
+                        {
+                          to: '/my-refunds',
+                          icon: 'currency_exchange',
+                          title: 'Pusat Refund & Pembatalan',
+                          desc: 'Pantau status pengembalian dana tiket atau ajukan pembatalan secara mandiri.',
                         },
                         {
                           to: '/check-in',

@@ -67,6 +67,19 @@ export default function Navbar() {
               Bantuan
             </a>
 
+            {user?.role === 'customer' && (
+              <Link
+                to="/my-refunds"
+                className={`text-sm font-medium transition-colors ${
+                  location.pathname === '/my-refunds' || location.pathname === '/refunds'
+                    ? 'text-brand-fg font-semibold border-b-2 border-brand-fg pb-1'
+                    : 'text-ink hover:text-brand-fg'
+                }`}
+              >
+                Pusat Refund
+              </Link>
+            )}
+
             {/* Direct Admin Link in Navbar Menu for Admins */}
             {user?.role === 'admin' && (
               <Link
@@ -118,15 +131,30 @@ export default function Navbar() {
               )}
 
               {user.role === 'customer' && (
-                <Link
-                  to="/dashboard"
-                  id="navbar-customer-dashboard-btn"
-                  className="inline-flex items-center gap-1.5 px-3 py-2 border border-line bg-panel hover:bg-tint text-ink rounded-control text-xs md:text-sm font-medium transition-colors"
-                  title="Buka Pesanan Saya"
-                >
-                  <span className="material-symbols-outlined text-[18px] text-brand-fg">confirmation_number</span>
-                  <span className="hidden sm:inline">Pesanan Saya</span>
-                </Link>
+                <>
+                  <Link
+                    to="/dashboard"
+                    id="navbar-customer-dashboard-btn"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 border border-line bg-panel hover:bg-tint text-ink rounded-control text-xs md:text-sm font-medium transition-colors"
+                    title="Buka Pesanan Saya"
+                  >
+                    <span className="material-symbols-outlined text-[18px] text-brand-fg">confirmation_number</span>
+                    <span className="hidden sm:inline">Pesanan Saya</span>
+                  </Link>
+                  <Link
+                    to="/my-refunds"
+                    id="navbar-customer-refunds-btn"
+                    className={`inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-2 border rounded-control text-xs md:text-sm font-medium transition-colors ${
+                      location.pathname === '/my-refunds' || location.pathname === '/refunds'
+                        ? 'border-brand-fg bg-tint text-brand-fg font-semibold'
+                        : 'border-line bg-panel hover:bg-tint text-ink'
+                    }`}
+                    title="Buka Pusat Refund"
+                  >
+                    <span className="material-symbols-outlined text-[18px] text-brand-fg">currency_exchange</span>
+                    <span className="hidden lg:inline">Refund</span>
+                  </Link>
+                </>
               )}
 
               {/* User profile capsule with link to appropriate dashboard */}

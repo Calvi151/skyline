@@ -7,11 +7,8 @@ import { useAuthStore } from '../../store/authStore'
 import { AirlineLogo } from '../../components/common/AirlineLogo'
 import {
   AirportItem,
-  POPULAR_AIRPORTS,
   searchAirports,
   getAirportByCode,
-  getPrimaryCity,
-  getCityName,
 } from '../../lib/airports'
 
 export interface FlightSegment {
@@ -57,11 +54,27 @@ export default function SearchResults() {
   const rawOrigin = searchParams.get('origin') || 'CGK'
   const rawDestination = searchParams.get('destination') || 'DPS'
   const resolvedOriginAirport = useMemo(
-    () => getAirportByCode(rawOrigin) || POPULAR_AIRPORTS[0],
+    () =>
+      getAirportByCode(rawOrigin) || {
+        code: rawOrigin.toUpperCase(),
+        city: rawOrigin.toUpperCase(),
+        primaryCity: rawOrigin.toUpperCase(),
+        name: `Bandara ${rawOrigin.toUpperCase()}`,
+        country: 'Indonesia',
+        aliases: [rawOrigin.toLowerCase()],
+      },
     [rawOrigin]
   )
   const resolvedDestAirport = useMemo(
-    () => getAirportByCode(rawDestination) || POPULAR_AIRPORTS[1],
+    () =>
+      getAirportByCode(rawDestination) || {
+        code: rawDestination.toUpperCase(),
+        city: rawDestination.toUpperCase(),
+        primaryCity: rawDestination.toUpperCase(),
+        name: `Bandara ${rawDestination.toUpperCase()}`,
+        country: 'Indonesia',
+        aliases: [rawDestination.toLowerCase()],
+      },
     [rawDestination]
   )
   const origin = resolvedOriginAirport.code
@@ -463,10 +476,31 @@ export default function SearchResults() {
     }
   }
 
+  // Helper to cleanly format city names from database strings like "Denpasar-Bali Island" -> "Bali (Denpasar)"
+  const getCleanCityName = (city?: string | null, code?: string | null) => {
+    if (code) {
+      const found = getAirportByCode(code)
+      if (found) return found.primaryCity || found.city
+    }
+    if (!city) return code || ''
+    const cleaned = city.replace(/Island|International/gi, '').split('-')[0].trim()
+    return cleaned || code || ''
+  }
+
+  // Live lowest price on active date from search results
+  const currentLowestPrice = useMemo(() => {
+    if (flights.length === 0) return null
+    const prices = flights.map((f) =>
+      cabinClass === 'business' && f.price_business ? f.price_business : f.price_economy
+    )
+    return Math.min(...prices)
+  }, [flights, cabinClass])
+
   // Format Helper: Day Abbreviation
   const formatDayName = (dateStr: string) => {
     try {
-      const d = new Date(dateStr + 'T00:00:00')
+      const cleanDate = (dateStr || '').slice(0, 10)
+      const d = new Date(cleanDate + 'T00:00:00')
       const days = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab']
       const months = [
         'Jan',
@@ -542,14 +576,14 @@ export default function SearchResults() {
             <div className="flex flex-wrap items-center gap-2 md:gap-3">
               <div className="flex items-center gap-2">
                 <span className="font-bold text-base sm:text-lg text-ink font-sans tracking-tight">
-                  {getPrimaryCity(activeOrigin)}
+                  {getCleanCityName(null, activeOrigin)}
                 </span>
                 <span className="px-1.5 py-0.2 rounded bg-tint text-brand-fg font-mono text-[11px] font-bold">
                   {activeOrigin}
                 </span>
                 <span className="material-symbols-outlined text-brand-fg text-[18px]">east</span>
                 <span className="font-bold text-base sm:text-lg text-ink font-sans tracking-tight">
-                  {getPrimaryCity(activeDestination)}
+                  {getCleanCityName(null, activeDestination)}
                 </span>
                 <span className="px-1.5 py-0.2 rounded bg-tint text-brand-fg font-mono text-[11px] font-bold">
                   {activeDestination}
@@ -989,38 +1023,40 @@ export default function SearchResults() {
         </section>
 
         {/* ─── 2. 7-Day Price Calendar Date Strip (CAL-01 & Stitch B4) ─── */}
-        <section className="bg-raised border-b border-line">
+        <section className="bg-raised border-b border-line shadow-2xs">
           <div className="max-w-content mx-auto px-4 md:px-6">
-            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-1 md:gap-2 py-2 overflow-x-auto">
+            <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-7 gap-1.5 md:gap-2.5 py-2.5 overflow-x-auto">
               {calendarDays
                 .filter((cd) => cd.date >= todayStr)
                 .map((cd) => {
                   const isSelected = cd.date === activeDate
                   const isToday = cd.date === todayStr
-                  const hasFlight = cd.lowest_price !== null && cd.lowest_price > 0
+                  const displayPrice =
+                    isSelected && currentLowestPrice !== null
+                      ? currentLowestPrice
+                      : cd.lowest_price
 
                   return (
                     <button
                       key={cd.date}
                       type="button"
-                      disabled={!hasFlight}
                       onClick={() => handleDateSelect(cd.date)}
-                      className={`relative flex flex-col items-center justify-center py-2.5 px-2 rounded-control text-center transition-all ${
+                      className={`relative flex flex-col items-center justify-center py-2 px-2 rounded-control text-center transition-all cursor-pointer select-none ${
                         isSelected
-                          ? 'bg-tint text-ink ring-1 ring-brand-fg/30'
-                          : hasFlight
-                          ? 'hover:bg-page text-ink cursor-pointer'
-                          : 'opacity-40 cursor-not-allowed text-subtle'
+                          ? 'bg-tint text-ink ring-2 ring-brand-fg/50 font-bold shadow-xs'
+                          : 'hover:bg-page/70 text-ink/80 hover:text-ink'
                       }`}
                     >
                       {/* Active Underline Indicator */}
                       {isSelected && (
-                        <div className="absolute bottom-0 left-3 right-3 h-[3px] bg-brand-fg rounded-t-full" />
+                        <div className="absolute bottom-0 left-2 right-2 h-[3px] bg-brand-fg rounded-t-full" />
                       )}
                       <div className="flex items-center gap-1">
                         <span
                           className={`text-xs ${
-                            isSelected ? 'font-bold text-brand-fg' : 'text-subtle font-medium'
+                            isSelected
+                              ? 'font-extrabold text-brand-fg'
+                              : 'text-ink/80 dark:text-slate-200 font-semibold'
                           }`}
                         >
                           {formatDayName(cd.date)}
@@ -1031,8 +1067,20 @@ export default function SearchResults() {
                           </span>
                         )}
                       </div>
-                      <span className="text-xs font-bold tabular-nums mt-0.5">
-                        {hasFlight ? formatRupiah(cd.lowest_price) : '-'}
+                      <span
+                        className={`text-xs tabular-nums mt-0.5 ${
+                          displayPrice
+                            ? isSelected
+                              ? 'font-extrabold text-ink'
+                              : 'font-semibold text-emerald-600 dark:text-emerald-400'
+                            : 'text-subtle font-medium'
+                        }`}
+                      >
+                        {displayPrice
+                          ? formatRupiah(displayPrice)
+                          : isSelected
+                          ? '-'
+                          : 'Lihat Jadwal'}
                       </span>
                     </button>
                   )
@@ -1043,9 +1091,9 @@ export default function SearchResults() {
 
         {/* ─── 3. Main Search Canvas: Sidebar Filter (280px) + Results List ─── */}
         <div className="max-w-content mx-auto px-4 md:px-6 mt-6">
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+          <div className="grid grid-cols-1 lg:grid-cols-12 gap-5 items-start">
             {/* ════ LEFT COLUMN: Filter Sidebar (280px visual scale) ════ */}
-            <aside className="hidden lg:block lg:col-span-4 xl:col-span-3 bg-raised border border-line rounded-ticket p-5 shadow-xs space-y-5">
+            <aside className="hidden lg:block lg:col-span-3 xl:col-span-3 bg-raised border border-line rounded-ticket p-4 sm:p-5 shadow-xs space-y-5">
               {/* Filter Header */}
               <div className="flex items-center justify-between pb-3 border-b border-line">
                 <span className="font-bold text-ink text-base">Filter</span>
@@ -1296,7 +1344,7 @@ export default function SearchResults() {
             </aside>
 
             {/* ════ RIGHT COLUMN: Results List & Toolbar ════ */}
-            <section className="lg:col-span-8 xl:col-span-9 space-y-4">
+            <section className="lg:col-span-9 xl:col-span-9 space-y-4">
               {/* Toolbar: Count, Chips, and Sort Dropdown */}
               <div className="bg-raised border border-line rounded-ticket p-4 shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-2">
@@ -1462,6 +1510,21 @@ export default function SearchResults() {
                         ? flight.price_business
                         : flight.price_economy
 
+                    const originCityClean = getCleanCityName(
+                      firstSeg?.origin?.city,
+                      firstSeg?.origin?.code || activeOrigin
+                    )
+                    const destCityClean = getCleanCityName(
+                      lastSeg?.destination?.city,
+                      lastSeg?.destination?.code || activeDestination
+                    )
+                    const isNextDay = Boolean(
+                      firstSeg?.departure_time &&
+                        lastSeg?.arrival_time &&
+                        new Date(lastSeg.arrival_time).getDate() !==
+                          new Date(firstSeg.departure_time).getDate()
+                    )
+
                     return (
                       <div
                         key={flight.id}
@@ -1472,48 +1535,59 @@ export default function SearchResults() {
                         }`}
                       >
                         {/* Primary Row Content */}
-                        <div className="p-4 md:p-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                          {/* Left: Airline & Flight Code */}
+                        <div className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
+                          {/* Left: Airline & Aircraft Info */}
                           <div className="w-full md:w-52 shrink-0 flex items-center gap-3">
-                            <AirlineLogo
-                              code={flight.airline?.code}
-                              name={flight.airline?.name}
-                              logo={flight.airline?.logo}
-                              size="md"
-                            />
+                            <div className="p-1 rounded-xl bg-white dark:bg-panel border border-line/80 shadow-xs shrink-0 flex items-center justify-center">
+                              <AirlineLogo
+                                code={flight.airline?.code}
+                                name={flight.airline?.name}
+                                logo={flight.airline?.logo}
+                                size="md"
+                              />
+                            </div>
                             <div className="flex flex-col min-w-0">
-                              <span className="font-bold text-ink text-sm truncate" title={flight.airline?.name || 'SkyBook Air'}>
+                              <span
+                                className="font-bold text-ink text-sm sm:text-base leading-snug truncate"
+                                title={flight.airline?.name || 'SkyBook Air'}
+                              >
                                 {flight.airline?.name || 'SkyBook Air'}
                               </span>
-                              <div className="flex items-center gap-1.5 mt-0.5">
-                                <span className="text-[10px] font-bold bg-page border border-line px-1.5 py-0.5 rounded text-subtle shrink-0">
+                              <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-subtle">
+                                <span className="font-mono font-semibold bg-panel px-1.5 py-0.5 rounded border border-line/60">
                                   {flight.flight_number}
                                 </span>
-                                {seatRemain <= 5 && seatRemain > 0 && (
-                                  <span className="text-[10px] font-bold text-danger shrink-0">
-                                    Sisa {seatRemain} kursi
-                                  </span>
-                                )}
+                                <span>•</span>
+                                <span className="truncate">
+                                  {flight.airplane?.model || 'Boeing 737'}
+                                </span>
                               </div>
+                              {seatRemain <= 5 && seatRemain > 0 && (
+                                <span className="text-[10px] font-bold text-danger mt-0.5">
+                                  Sisa {seatRemain} kursi
+                                </span>
+                              )}
                             </div>
                           </div>
 
-                          {/* Center: RouteLine & Duration Timeline */}
-                          <div className="flex-1 flex items-center justify-center gap-4 px-2">
+                          {/* Center: Route Timeline (Departure -> Path -> Arrival) */}
+                          <div className="flex-1 flex items-center justify-between sm:justify-center gap-3 sm:gap-6 px-1 sm:px-3">
                             {/* Departure */}
-                            <div className="text-right">
-                              <div className="font-bold text-base md:text-lg tabular-nums text-ink">
+                            <div className="text-right min-w-[85px] sm:min-w-[105px]">
+                              <div className="font-extrabold text-xl sm:text-2xl tabular-nums text-ink font-mono tracking-tight leading-none">
                                 {formatTime(firstSeg?.departure_time)}
                               </div>
-                              <div className="text-xs font-bold text-ink truncate max-w-[120px]">
-                                {firstSeg?.origin?.city || getPrimaryCity(firstSeg?.origin?.code || activeOrigin)}
+                              <div
+                                className="text-xs font-bold text-ink mt-1 truncate max-w-[130px] sm:max-w-[150px]"
+                                title={originCityClean}
+                              >
+                                {originCityClean}
                               </div>
-                              <div className="text-[11px] font-mono font-bold text-subtle">
+                              <div className="inline-block mt-0.5 px-1.5 py-0.2 rounded bg-tint text-brand-fg font-mono text-[10px] font-bold">
                                 {firstSeg?.origin?.code || activeOrigin}
                               </div>
-                              {/* Revisi data real: Keterlambatan */}
                               {flight.delay_minutes > 0 && (
-                                <div className="text-[10px] text-danger font-semibold flex items-center gap-0.5 justify-end mt-0.5">
+                                <div className="text-[10px] text-danger font-semibold flex items-center gap-0.5 justify-end mt-1">
                                   <span className="material-symbols-outlined text-[12px]">
                                     schedule
                                   </span>
@@ -1522,89 +1596,107 @@ export default function SearchResults() {
                               )}
                             </div>
 
-                            {/* Middle Route Line */}
-                            <div className="flex-1 max-w-[200px] flex flex-col items-center">
-                              <span className="text-[11px] font-medium text-subtle mb-1">
+                            {/* Middle Flight Path & Transit */}
+                            <div className="flex-1 min-w-[160px] max-w-[260px] flex flex-col items-center px-1">
+                              <span className="text-[11px] font-semibold text-subtle mb-1">
                                 {formatDuration(flight.total_duration_minutes)}
                               </span>
-                              <div className="w-full relative flex items-center justify-center">
-                                <div className="w-full h-[2px] bg-brand-fg/40" />
-                                <span className="material-symbols-outlined absolute text-[16px] text-brand-fg bg-raised px-1">
+                              <div className="w-full relative flex items-center justify-center my-0.5">
+                                <div className="w-full h-[1.5px] bg-line relative">
+                                  {isTransit && (
+                                    <span className="absolute left-1/2 -translate-x-1/2 -top-[3.5px] w-2 h-2 rounded-full bg-amber-500 border border-raised" />
+                                  )}
+                                </div>
+                                <span className="material-symbols-outlined absolute text-[16px] text-brand-fg bg-raised px-1 select-none">
                                   flight
                                 </span>
                               </div>
-                              <div className="flex items-center gap-1 mt-1 flex-wrap justify-center">
+                              <div className="mt-1 flex items-center justify-center">
                                 {isTransit ? (
-                                  <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/15 text-amber-800 dark:text-amber-300 border border-amber-500/20">
-                                    Transit di {flight.segments[0].destination?.city || getCityName(flight.segments[0].destination?.code)} ({flight.segments[0].destination?.code || 'SUB'})
+                                  <span className="inline-flex items-center gap-1 text-[10px] sm:text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20 whitespace-nowrap">
+                                    <span>
+                                      Transit ({flight.segments[0].destination?.code || 'KUL'})
+                                    </span>
                                   </span>
                                 ) : (
-                                  <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-tint text-brand-fg">
+                                  <span className="text-[10px] sm:text-[11px] font-bold px-2.5 py-0.5 rounded-full bg-tint text-brand-fg border border-brand-fg/15 whitespace-nowrap">
                                     Langsung
                                   </span>
                                 )}
-                                {flight.layover_warning === 'short' && (
-                                  <span className="text-[9px] font-bold text-danger flex items-center">
-                                    • Transit singkat
-                                  </span>
-                                )}
-                                {flight.layover_warning === 'long' && (
-                                  <span className="text-[9px] font-medium text-subtle flex items-center">
-                                    • Transit lama
-                                  </span>
-                                )}
                               </div>
+                              {flight.layover_warning === 'short' && (
+                                <span className="text-[9px] font-bold text-danger mt-0.5">
+                                  Transit singkat
+                                </span>
+                              )}
+                              {flight.layover_warning === 'long' && (
+                                <span className="text-[9px] font-medium text-subtle mt-0.5">
+                                  Transit santai
+                                </span>
+                              )}
                             </div>
 
                             {/* Arrival */}
-                            <div className="text-left">
-                              <div className="font-bold text-base md:text-lg tabular-nums text-ink">
-                                {formatTime(lastSeg?.arrival_time)}
+                            <div className="text-left min-w-[85px] sm:min-w-[105px]">
+                              <div className="flex items-center gap-1 leading-none">
+                                <span className="font-extrabold text-xl sm:text-2xl tabular-nums text-ink font-mono tracking-tight">
+                                  {formatTime(lastSeg?.arrival_time)}
+                                </span>
+                                {isNextDay && (
+                                  <span className="text-[9px] font-extrabold text-brand-fg bg-brand-fg/10 px-1 py-0.5 rounded leading-none">
+                                    +1h
+                                  </span>
+                                )}
                               </div>
-                              <div className="text-xs font-bold text-ink truncate max-w-[120px]">
-                                {lastSeg?.destination?.city || getPrimaryCity(lastSeg?.destination?.code || activeDestination)}
+                              <div
+                                className="text-xs font-bold text-ink mt-1 truncate max-w-[130px] sm:max-w-[150px]"
+                                title={destCityClean}
+                              >
+                                {destCityClean}
                               </div>
-                              <div className="text-[11px] font-mono font-bold text-subtle">
+                              <div className="inline-block mt-0.5 px-1.5 py-0.2 rounded bg-tint text-brand-fg font-mono text-[10px] font-bold">
                                 {lastSeg?.destination?.code || activeDestination}
                               </div>
                             </div>
                           </div>
 
-                          {/* Right: Price & CTA */}
-                          <div className="flex items-center justify-between md:justify-end gap-4 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-line">
-                            {roundTripStep === 'inbound' ? (
-                              <div className="text-left md:text-right">
-                                <div className="text-[11px] text-subtle line-through tabular-nums">
-                                  {formatRupiah(finalPrice)}
-                                </div>
-                                <div className="text-base md:text-lg font-black text-emerald-600 dark:text-emerald-400 tabular-nums">
-                                  {formatRupiah(Math.round(finalPrice * 0.9))}
-                                </div>
-                                <span className="inline-block px-1.5 py-0.2 rounded text-[10px] font-bold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
-                                  Diskon PP 10%
-                                </span>
-                              </div>
-                            ) : (
-                              <div className="text-left md:text-right">
-                                <div className="text-base md:text-lg font-bold text-ink tabular-nums">
-                                  {formatRupiah(finalPrice)}
-                                </div>
-                                <div className="text-[11px] text-subtle">
-                                  {isGroup ? (
-                                    <span className="text-emerald-600 dark:text-emerald-400 font-bold">
-                                      Diskon Rombongan s/d {groupDiscount}%
-                                    </span>
-                                  ) : (
-                                    'per orang'
-                                  )}
-                                </div>
-                              </div>
-                            )}
+                          {/* Right: Price & CTA (Stacked on desktop to guarantee zero button clipping) */}
+                          <div className="shrink-0 flex items-center justify-between md:flex-col md:items-end md:justify-center gap-2 pt-3 md:pt-0 border-t md:border-t-0 border-line/60 md:min-w-[125px]">
+                            <div className="text-left md:text-right">
+                              {roundTripStep === 'inbound' ? (
+                                <>
+                                  <div className="text-[11px] text-subtle line-through tabular-nums font-mono">
+                                    {formatRupiah(finalPrice)}
+                                  </div>
+                                  <div className="text-base sm:text-lg font-black text-emerald-600 dark:text-emerald-400 tabular-nums font-mono tracking-tight leading-tight">
+                                    {formatRupiah(Math.round(finalPrice * 0.9))}
+                                  </div>
+                                  <span className="inline-block px-1.5 py-0.5 rounded text-[9px] font-extrabold bg-emerald-500/15 text-emerald-700 dark:text-emerald-400 mt-0.5">
+                                    Diskon PP 10%
+                                  </span>
+                                </>
+                              ) : (
+                                <>
+                                  <div className="text-base sm:text-lg font-black text-ink tabular-nums font-mono tracking-tight leading-tight">
+                                    {formatRupiah(finalPrice)}
+                                  </div>
+                                  <div className="text-[10px] text-subtle font-medium mt-0.5">
+                                    {isGroup ? (
+                                      <span className="text-emerald-600 dark:text-emerald-400 font-bold">
+                                        Diskon Group {groupDiscount}%
+                                      </span>
+                                    ) : (
+                                      '/ orang'
+                                    )}
+                                  </div>
+                                </>
+                              )}
+                            </div>
 
                             <button
                               type="button"
                               onClick={() => handleChooseFlight(flight)}
-                              className="h-11 px-5 rounded-control bg-brand hover:bg-brand-hover text-white font-semibold text-xs transition-all shadow-sm active:scale-95 flex items-center justify-center gap-1.5"
+                              className="h-9 px-4 rounded-control bg-brand hover:bg-brand-hover text-white font-bold text-xs transition-all shadow-sm active:scale-95 flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
                             >
                               <span>
                                 {isRoundtrip && roundTripStep === 'outbound'
@@ -1613,19 +1705,23 @@ export default function SearchResults() {
                                   ? 'Pilih Pulang'
                                   : 'Pilih'}
                               </span>
-                              <span className="material-symbols-outlined text-[16px]">arrow_forward</span>
+                              <span className="material-symbols-outlined text-[15px]">
+                                arrow_forward
+                              </span>
                             </button>
                           </div>
                         </div>
 
-                        {/* Inline Expand Button */}
-                        <div className="bg-page/40 border-t border-line/60 px-4 md:px-6 py-2 flex items-center justify-between text-xs">
+                        {/* Inline Expand Button & Key Inclusions */}
+                        <div className="bg-page/40 border-t border-line/60 px-4 md:px-6 py-2.5 flex flex-wrap items-center justify-between gap-2 text-xs">
                           <button
                             type="button"
                             onClick={() => setExpandedRowId(isExpanded ? null : flight.id)}
-                            className="text-brand-fg hover:underline font-semibold flex items-center gap-1"
+                            className="text-brand-fg hover:text-brand-hover font-bold flex items-center gap-1 transition-colors cursor-pointer"
                           >
-                            <span>{isExpanded ? 'Sembunyikan rincian' : 'Rincian penerbangan'}</span>
+                            <span>
+                              {isExpanded ? 'Sembunyikan rincian' : 'Rincian penerbangan'}
+                            </span>
                             <span
                               className={`material-symbols-outlined text-[16px] transition-transform ${
                                 isExpanded ? 'rotate-180' : ''
@@ -1634,9 +1730,26 @@ export default function SearchResults() {
                               expand_more
                             </span>
                           </button>
-                          <span className="text-subtle text-[11px]">
-                            {flight.airplane?.model || 'Pesawat Jet Modern'}
-                          </span>
+
+                          <div className="flex items-center gap-3 text-[11px] text-subtle">
+                            <span className="flex items-center gap-1 font-medium">
+                              <span className="material-symbols-outlined text-[14px] text-brand-fg">
+                                luggage
+                              </span>
+                              <span>Kabin 7kg</span>
+                            </span>
+                            <span className="text-line">•</span>
+                            <span className="flex items-center gap-1 font-medium">
+                              <span className="material-symbols-outlined text-[14px] text-emerald-600 dark:text-emerald-400">
+                                backpack
+                              </span>
+                              <span>Bagasi 20kg</span>
+                            </span>
+                            <span className="text-line hidden sm:inline">•</span>
+                            <span className="hidden sm:inline-block font-mono text-[10px]">
+                              {flight.airplane?.model || 'Boeing 737'}
+                            </span>
+                          </div>
                         </div>
 
                         {/* Expanded Tray with Tabs */}
