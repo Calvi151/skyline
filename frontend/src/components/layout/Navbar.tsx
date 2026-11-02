@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import ThemeToggle from '../common/ThemeToggle'
 import { useAuthStore } from '../../store/authStore'
@@ -6,6 +7,16 @@ export default function Navbar() {
   const location = useLocation()
   const navigate = useNavigate()
   const { user, logout } = useAuthStore()
+  const [isScrolled, setIsScrolled] = useState(false)
+
+  useEffect(() => {
+    const onScroll = () => setIsScrolled(window.scrollY > 24)
+    onScroll()
+    window.addEventListener('scroll', onScroll, { passive: true })
+    return () => window.removeEventListener('scroll', onScroll)
+  }, [])
+
+  const isTransparentHero = location.pathname === '/' && !isScrolled
 
   const handleLogout = async () => {
     try {
@@ -23,19 +34,27 @@ export default function Navbar() {
   }
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 h-[72px] bg-panel/90 backdrop-blur-md border-b border-line shadow-xs">
+    <header
+      className={`fixed top-0 left-0 right-0 z-50 h-[68px] transition-all duration-300 ${
+        isTransparentHero
+          ? 'bg-slate-950/20 backdrop-blur-[6px] border-b border-white/10'
+          : 'bg-panel/80 backdrop-blur-md border-b border-line/70 shadow-xs'
+      }`}
+    >
       <div className="max-w-[1200px] h-full mx-auto px-4 md:px-6 flex items-center justify-between">
         {/* Left: Wordmark & Navigation Links */}
         <div className="flex items-center gap-6 md:gap-8">
           <Link
             to="/"
-            className="flex items-center gap-2 text-xl font-bold tracking-tight text-ink group"
+            className={`flex items-center gap-2 text-xl font-bold tracking-tight group ${
+              isTransparentHero ? 'text-white drop-shadow-xs' : 'text-ink'
+            }`}
           >
-            <span className="material-symbols-outlined text-brand-fg text-[28px] select-none group-hover:scale-105 transition-transform">
+            <span className="material-symbols-outlined text-sky-400 text-[26px] select-none group-hover:scale-105 transition-transform">
               flight_takeoff
             </span>
             <span className="font-sans">
-              Sky<span className="text-brand-fg">Book</span>
+              Sky<span className={isTransparentHero ? 'text-sky-400' : 'text-brand-fg'}>Book</span>
             </span>
           </Link>
 
@@ -44,7 +63,11 @@ export default function Navbar() {
               to="/"
               className={`text-sm font-medium transition-colors ${
                 location.pathname === '/'
-                  ? 'text-brand-fg font-semibold border-b-2 border-brand-fg pb-1'
+                  ? isTransparentHero
+                    ? 'text-white font-semibold border-b-2 border-sky-400 pb-1'
+                    : 'text-brand-fg font-semibold border-b-2 border-brand-fg pb-1'
+                  : isTransparentHero
+                  ? 'text-white/85 hover:text-white'
                   : 'text-ink hover:text-brand-fg'
               }`}
             >
@@ -55,6 +78,8 @@ export default function Navbar() {
               className={`text-sm font-medium transition-colors ${
                 location.pathname === '/check-in'
                   ? 'text-brand-fg font-semibold border-b-2 border-brand-fg pb-1'
+                  : isTransparentHero
+                  ? 'text-white/85 hover:text-white'
                   : 'text-ink hover:text-brand-fg'
               }`}
             >
@@ -62,7 +87,9 @@ export default function Navbar() {
             </Link>
             <a
               href="#faq"
-              className="text-sm font-medium text-ink hover:text-brand-fg transition-colors"
+              className={`text-sm font-medium transition-colors ${
+                isTransparentHero ? 'text-white/85 hover:text-white' : 'text-ink hover:text-brand-fg'
+              }`}
             >
               Bantuan
             </a>
@@ -73,6 +100,8 @@ export default function Navbar() {
                 className={`text-sm font-medium transition-colors ${
                   location.pathname === '/my-refunds' || location.pathname === '/refunds'
                     ? 'text-brand-fg font-semibold border-b-2 border-brand-fg pb-1'
+                    : isTransparentHero
+                    ? 'text-white/85 hover:text-white'
                     : 'text-ink hover:text-brand-fg'
                 }`}
               >
@@ -87,6 +116,8 @@ export default function Navbar() {
                 className={`text-sm font-medium transition-colors flex items-center gap-1 ${
                   location.pathname.startsWith('/admin')
                     ? 'text-brand-fg font-semibold border-b-2 border-brand-fg pb-1'
+                    : isTransparentHero
+                    ? 'text-sky-300 hover:text-white'
                     : 'text-brand-fg hover:text-brand-hover'
                 }`}
               >
@@ -190,14 +221,18 @@ export default function Navbar() {
             <>
               <Link
                 to="/login"
-                className="hidden sm:inline-flex items-center justify-center border border-ink text-ink rounded-control px-4 py-2 text-xs md:text-sm font-semibold hover:bg-tint transition-all focus:outline-none focus:ring-2 focus:ring-brand-fg"
+                className={`hidden sm:inline-flex items-center justify-center rounded-control px-4 py-1.5 text-xs md:text-sm font-semibold transition-all focus:outline-none focus:ring-2 focus:ring-brand-fg ${
+                  isTransparentHero
+                    ? 'border border-white/50 text-white hover:bg-white/15'
+                    : 'border border-ink text-ink hover:bg-tint'
+                }`}
               >
                 Masuk
               </Link>
 
               <Link
                 to="/register"
-                className="inline-flex items-center justify-center bg-brand hover:bg-brand-hover text-white rounded-control px-4 md:px-5 py-2 text-xs md:text-sm font-semibold shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-brand-fg"
+                className="inline-flex items-center justify-center bg-brand hover:bg-brand-hover text-white rounded-control px-4 md:px-5 py-1.5 text-xs md:text-sm font-semibold shadow-sm transition-all focus:outline-none focus:ring-2 focus:ring-brand-fg"
               >
                 Daftar
               </Link>
