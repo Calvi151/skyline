@@ -280,6 +280,7 @@ checkinRoute.get('/lookup', optionalAuthMiddleware, async (c) => {
       is_checked_in: Boolean(checkin),
       boarding_pass_code: checkin?.boardingPassCode || null,
       checked_in_at: checkin?.checkedInAt ? checkin.checkedInAt.toISOString() : null,
+      status: checkin?.status || 'not_checked_in',
     }
   })
 
@@ -441,6 +442,7 @@ checkinRoute.post('/', optionalAuthMiddleware, async (c) => {
       seat_number: seat?.seatNumber || 'N/A',
       boarding_pass_code: bpCode,
       checked_in_at: existing?.checkedInAt ? existing.checkedInAt.toISOString() : now.toISOString(),
+      status: existing?.status || 'checked_in',
       gate: '3A',
       boarding_time: '07:10 WIB',
     })

@@ -4,6 +4,7 @@ import { api } from '../../lib/api'
 import StaffLayout from '../../components/layout/StaffLayout'
 import { useStaffStore } from '../../store/staffStore'
 import { broadcastStaffEvent, subscribeStaffEvents } from '../../lib/staffEvents'
+import { gateAudio } from '../../lib/audioFeedback'
 
 interface FlightScheduleItem {
   id: number
@@ -89,6 +90,7 @@ export default function ScanBoarding() {
   const inputRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const scanIntervalRef = useRef<any>(null)
+  const lastScanRef = useRef<{ code: string; time: number }>({ code: '', time: 0 })
 
   // Sync selected flight with query parameter
   useEffect(() => {
@@ -176,8 +178,14 @@ export default function ScanBoarding() {
                       const barcodes = await detector.detect(videoRef.current)
                       if (barcodes && barcodes.length > 0) {
                         const detected = barcodes[0].rawValue
-                        if (detected && detected.trim() !== inputCode) {
-                          handleVerify(detected.trim())
+                        const trimmed = detected ? detected.trim() : ''
+                        const now = Date.now()
+                        if (
+                          trimmed &&
+                          (trimmed.toUpperCase() !== lastScanRef.current.code.toUpperCase() ||
+                            now - lastScanRef.current.time > 3500)
+                        ) {
+                          handleVerify(trimmed)
                         }
                       }
                     } catch {
@@ -246,6 +254,16 @@ export default function ScanBoarding() {
     const raw = (codeToVerify || inputCode).trim()
     if (!raw) return
 
+    // Debounce & Cegah Double Scan pada barcode/PNR yang sama dalam 3 detik
+    const now = Date.now()
+    if (
+      lastScanRef.current.code.toUpperCase() === raw.toUpperCase() &&
+      now - lastScanRef.current.time < 3000
+    ) {
+      return
+    }
+    lastScanRef.current = { code: raw, time: now }
+
     setLoading(true)
     try {
       const res = await api.post<{
@@ -258,6 +276,10 @@ export default function ScanBoarding() {
       })
 
       const passengerData = res.data?.data
+
+      // Mainkan suara sukses (Ding DCS Hijau)
+      gateAudio.playSuccess()
+
       setScanResult({
         status: 'valid',
         data: passengerData,
@@ -301,6 +323,9 @@ export default function ScanBoarding() {
       )
       setInputCode('')
     } catch (err: any) {
+      // Mainkan suara buzzer penolakan (Buzzer Merah DCS)
+      gateAudio.playError()
+
       const errCode = err.response?.data?.code
       const errMsg = err.response?.data?.message || 'Kode boarding pass tidak valid'
       const errData = err.response?.data?.data as VerifyPassengerData | undefined
@@ -356,12 +381,15 @@ export default function ScanBoarding() {
             ...prev.slice(0, 4),
           ])
         }
+        setToastMessage(`⚠️ DITOLAK: Barcode sudah digunakan! Penumpang ${errData?.passenger_name || ''} tercatat sudah masuk pesawat sebelumnya.`)
       } else {
         setScanResult({
           status: 'invalid',
           errorMessage: errMsg,
         })
       }
+      // Bersihkan input field agar scanner laser/USB tidak menumpuk string
+      setInputCode('')
     } finally {
       setLoading(false)
       inputRef.current?.focus()
@@ -814,17 +842,17 @@ export default function ScanBoarding() {
                       boarding_pass_code: 'BP-P9L2M7-3-DL',
                       status: 'boarded',
                     },
-                    errorMessage: 'Penumpang Dewi Lestari (Kursi 15A) sudah tercatat naik pesawat sebelumnya',
+                    errorMessage: 'DITOLAK: Penumpang Dewi Lestari (Kursi 15A) sudah tercatat naik pesawat sebelumnya. Boarding pass ini tidak dapat digunakan lagi (duplikat).',
                   })
                 }
                 className={`flex-1 py-1 px-2 rounded text-center transition-all flex items-center justify-center gap-1 whitespace-nowrap ${
                   scanResult.status === 'already'
-                    ? 'bg-panel text-brand-fg shadow-xs font-bold'
+                    ? 'bg-panel text-danger shadow-xs font-bold'
                     : 'text-subtle hover:text-ink'
                 }`}
               >
-                <span className="w-1.5 h-1.5 rounded-full bg-subtle" />
-                <span>Simulasi Sudah Naik</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-danger" />
+                <span>Simulasi Ditolak (Duplikat)</span>
               </button>
 
               <button
@@ -1060,43 +1088,78 @@ export default function ScanBoarding() {
               </div>
             )}
 
-            {/* ─── CASE C: ALREADY BOARDED CARD ─── */}
+            {/* ─── CASE C: ALREADY BOARDED / DUPLICATE SCAN REJECTION CARD ─── */}
             {scanResult.status === 'already' && (
-              <div className="bg-panel border-2 border-line rounded-ticket p-5 shadow-xs flex flex-col gap-3 animate-fadeIn">
+              <div className="bg-panel border-2 border-danger/60 rounded-ticket p-5 shadow-md flex flex-col gap-4 animate-fadeIn">
                 <div className="flex items-center justify-between pb-2 border-b border-line">
-                  <div className="flex items-center gap-2">
-                    <div className="w-8 h-8 rounded-full bg-tint text-brand-fg flex items-center justify-center">
-                      <span className="material-symbols-outlined text-[18px]">info</span>
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-9 h-9 rounded-full bg-danger/15 text-danger flex items-center justify-center shrink-0">
+                      <span className="material-symbols-outlined text-[22px]">block</span>
                     </div>
                     <div>
-                      <span className="font-bold text-sm text-ink block">
-                        Sudah Berada di Pesawat
+                      <span className="font-extrabold text-sm text-danger block uppercase tracking-wide">
+                        AKSES DITOLAK: TIKET DUPLIKAT (SUDAH NAIK)
                       </span>
                       <span className="text-[11px] text-subtle">
-                        Boarding pass ini sudah discan dan tercatat naik sebelumnya
+                        Boarding pass ini sudah pernah discan sebelumnya &amp; tidak dapat digunakan lagi
                       </span>
                     </div>
                   </div>
-                  <span className="px-2.5 py-0.5 rounded-full bg-raised text-subtle text-[10px] uppercase font-bold tracking-wider">
-                    Already Boarded
+                  <span className="px-2.5 py-1 rounded-full bg-danger text-white text-[10px] uppercase font-black tracking-wider shrink-0">
+                    DITOLAK • DUPLIKAT
                   </span>
                 </div>
 
-                <div className="p-4 rounded-control bg-raised border border-line flex flex-col gap-1.5 text-xs">
-                  <div className="flex justify-between items-baseline">
-                    <span className="font-bold text-sm text-ink">
-                      {scanResult.data?.passenger_name}
-                    </span>
-                    <span className="font-bold text-brand-fg">
-                      Kursi {scanResult.data?.seat_number}
-                    </span>
+                {/* Passenger Identity Box */}
+                <div className="p-4 rounded-control bg-raised border border-line flex flex-col gap-2.5 text-xs">
+                  <div className="flex items-start justify-between gap-2">
+                    <div>
+                      <span className="text-[10px] uppercase font-bold text-subtle block">Identitas Pemilik Tiket</span>
+                      <h3 className="font-bold text-lg text-ink">
+                        {scanResult.data?.passenger_name}
+                      </h3>
+                      <div className="flex items-center gap-2 mt-1 flex-wrap">
+                        <span className="text-xs text-subtle font-mono">
+                          PNR: <strong className="text-ink">{scanResult.data?.booking_code}</strong>
+                        </span>
+                        {scanResult.data?.boarding_pass_code && (
+                          <span className="text-xs text-subtle font-mono">
+                            • Barcode: <strong className="text-ink">{scanResult.data.boarding_pass_code}</strong>
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="bg-panel border border-line rounded px-3 py-1.5 text-right shadow-2xs">
+                      <span className="text-[10px] uppercase font-semibold text-subtle block">Nomor Kursi</span>
+                      <span className="text-2xl font-black text-danger tracking-tight block">
+                        {scanResult.data?.seat_number || 'N/A'}
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-subtle">
-                    Penerbangan: <strong>{scanResult.data?.airline?.name} {scanResult.data?.flight_number}</strong>
+
+                  <div className="border-t border-line/60 pt-2 flex items-center justify-between text-subtle text-xs">
+                    <span>Penerbangan: <strong className="text-ink">{scanResult.data?.airline?.name} {scanResult.data?.flight_number}</strong></span>
+                    <span className="font-bold text-danger">STATUS: SUDAH NAIK PESAWAT</span>
                   </div>
-                  <p className="text-subtle mt-1">
-                    {scanResult.errorMessage || 'Boarding pass ini telah diverifikasi dan masuk kabin.'}
-                  </p>
+                </div>
+
+                {/* Security Gate Warning Box */}
+                <div className="p-3.5 bg-danger/10 border border-danger/30 rounded-control flex items-start gap-2.5 text-xs text-danger leading-relaxed">
+                  <span className="material-symbols-outlined text-[20px] text-danger shrink-0 mt-0.5">gpp_bad</span>
+                  <div className="flex flex-col gap-1">
+                    <strong className="text-danger font-bold text-xs uppercase tracking-wide">
+                      Peringatan Petugas Pintu Gerbang (Gate Security Alert):
+                    </strong>
+                    <p className="text-[11px] text-ink/80 leading-normal">
+                      1. Penumpang atas nama <strong>{scanResult.data?.passenger_name}</strong> telah tercatat masuk kabin sebelumnya.
+                    </p>
+                    <p className="text-[11px] text-ink/80 leading-normal">
+                      2. Sistem DCS <strong>TIDAK menduplikasi</strong> data di manifest (penumpang tidak terhitung dobel).
+                    </p>
+                    <p className="text-[11px] text-ink/80 leading-normal font-semibold text-danger">
+                      3. JANGAN IZINKAN MASUK! Pastikan tidak ada orang lain yang menyusup menggunakan boarding pass yang sama.
+                    </p>
+                  </div>
                 </div>
 
                 <div className="flex gap-2">
@@ -1106,10 +1169,19 @@ export default function ScanBoarding() {
                       setScanResult({ status: 'idle' })
                       inputRef.current?.focus()
                     }}
-                    className="flex-1 h-10 rounded-control bg-raised border border-line text-ink hover:bg-tint text-xs font-semibold transition-colors"
+                    className="flex-1 h-10 rounded-control bg-danger hover:bg-danger/90 text-white text-xs font-bold transition-colors flex items-center justify-center gap-1.5 shadow-xs"
                   >
-                    Scan Penumpang Lain
+                    <span className="material-symbols-outlined text-[16px]">qr_code_scanner</span>
+                    <span>Reset &amp; Pindai Penumpang Berikutnya</span>
                   </button>
+                  {scanResult.data?.flight_schedule_id && (
+                    <Link
+                      to={`/staff/flights/${scanResult.data.flight_schedule_id}/manifest`}
+                      className="h-10 px-4 rounded-control bg-raised border border-line hover:bg-tint text-ink text-xs font-semibold flex items-center justify-center transition-colors whitespace-nowrap"
+                    >
+                      Buka Manifest
+                    </Link>
+                  )}
                 </div>
               </div>
             )}
@@ -1211,10 +1283,10 @@ export default function ScanBoarding() {
                             ? 'bg-success/15 text-success'
                             : item.status === 'wrong_flight'
                             ? 'bg-amber-500/15 text-amber-600'
-                            : 'bg-subtle/15 text-subtle'
+                            : 'bg-danger/15 text-danger'
                         }`}>
                           <span className="material-symbols-outlined text-[15px]">
-                            {item.status === 'boarded' ? 'check' : item.status === 'wrong_flight' ? 'priority_high' : 'info'}
+                            {item.status === 'boarded' ? 'check' : item.status === 'wrong_flight' ? 'priority_high' : 'block'}
                           </span>
                         </span>
                         <div>
@@ -1223,6 +1295,9 @@ export default function ScanBoarding() {
                           </span>
                           <span className="text-[11px] text-subtle">
                             {item.airlineName ? `${item.airlineName} ` : ''}{item.flightNumber} • Kursi {item.seat} • PNR: {item.pnr}
+                            {item.status === 'already' && (
+                              <span className="text-danger font-semibold ml-1.5">• [Ditolak: Tiket Duplikat]</span>
+                            )}
                           </span>
                         </div>
                       </div>
@@ -1230,14 +1305,14 @@ export default function ScanBoarding() {
                         <span className="text-[10px] text-subtle block font-mono">
                           {item.time}
                         </span>
-                        <span className={`text-[10px] font-semibold uppercase ${
+                        <span className={`text-[10px] font-bold uppercase ${
                           item.status === 'boarded'
                             ? 'text-success'
                             : item.status === 'wrong_flight'
                             ? 'text-amber-600'
-                            : 'text-subtle'
+                            : 'text-danger'
                         }`}>
-                          {item.status === 'boarded' ? 'Naik' : item.status === 'wrong_flight' ? 'Salah Gate' : 'Sudah'}
+                          {item.status === 'boarded' ? 'Naik' : item.status === 'wrong_flight' ? 'Salah Gate' : 'Ditolak (Duplikat)'}
                         </span>
                       </div>
                     </div>

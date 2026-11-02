@@ -17,6 +17,7 @@ export interface CheckInResult {
   passenger_name: string
   seat_number: string
   boarding_pass_code: string
+  status?: string | null
   qr_code_url: string
   gate: string
   boarding_time: string
@@ -309,6 +310,7 @@ export class CheckinService {
       passenger_name: passenger.fullName,
       seat_number: result.seatNumber,
       boarding_pass_code: result.checkIn.boardingPassCode!,
+      status: result.checkIn.status,
       qr_code_url: qrCodeUrl,
       gate: '3A',
       boarding_time: boardingTimeStr,

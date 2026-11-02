@@ -572,7 +572,7 @@ staffManifestRoute.post('/verify-boarding', async (c) => {
     return c.json(
       {
         error: true,
-        message: `Penumpang ${passenger.fullName} (Kursi ${seat?.seatNumber || 'N/A'}) sudah tercatat naik pesawat sebelumnya`,
+        message: `DITOLAK: Penumpang ${passenger.fullName} (Kursi ${seat?.seatNumber || 'N/A'}) sudah tercatat naik pesawat sebelumnya. Boarding pass ini tidak dapat digunakan lagi (duplikat).`,
         code: 'ALREADY_BOARDED',
         data: {
           check_in_id: checkIn.id,

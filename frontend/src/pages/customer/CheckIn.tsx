@@ -8,7 +8,7 @@ import RealQrCode from '../../components/common/RealQrCode'
 import LandmarkWatermark from '../../components/common/LandmarkWatermark'
 import { AirlineLogo } from '../../components/common/AirlineLogo'
 import { getDestinationVisual, formatFlightDuration } from '../../lib/destinationMedia'
-import { broadcastStaffEvent } from '../../lib/staffEvents'
+import { broadcastStaffEvent, subscribeStaffEvents } from '../../lib/staffEvents'
 
 interface FlightSegment {
   id: number
@@ -42,6 +42,7 @@ interface PassengerData {
   is_checked_in?: boolean
   boarding_pass_code?: string | null
   checked_in_at?: string | null
+  status?: string | null
 }
 
 interface SeatItem {
@@ -216,6 +217,7 @@ export default function CheckIn() {
             seat_number: p.seat_number || 'N/A',
             boarding_pass_code: p.boarding_pass_code || `BP-${data.booking_code}-${p.id}`,
             checked_in_at: p.checked_in_at || new Date().toISOString(),
+            status: p.status || 'checked_in',
             gate: '3A',
             boarding_time: '30 menit sebelum keberangkatan',
           })),
@@ -255,6 +257,18 @@ export default function CheckIn() {
 
   const departureDate = firstSeg?.departure_time ? new Date(firstSeg.departure_time) : null
   const now = new Date()
+
+  // Auto-update real-time bila staf melakukan scan boarding di gerbang (boarding status changed)
+  useEffect(() => {
+    const unsubscribe = subscribeStaffEvents((event) => {
+      if (event.type === 'BOARDING_STATUS_CHANGED' || event.type === 'REFRESH_ALL') {
+        if (bookingDetail?.booking_code) {
+          loadBooking(bookingDetail.booking_code)
+        }
+      }
+    })
+    return () => unsubscribe()
+  }, [bookingDetail?.booking_code])
 
   // Hours until departure
   const hoursUntilDeparture = departureDate
@@ -459,6 +473,8 @@ export default function CheckIn() {
   const activePassenger = bookingDetail?.passengers[activeBoardingPassIndex] || bookingDetail?.passengers[0]
   const activeBoardingPass =
     issuedBoardingPasses?.find((bp) => bp.passenger_id === activePassenger?.id) || issuedBoardingPasses?.[0]
+  const isPassengerBoarded =
+    activePassenger?.status === 'boarded' || activeBoardingPass?.status === 'boarded'
 
   // Visual kota tujuan (gambar panorama + siluet landmark + durasi)
   const destVisual = useMemo(
@@ -746,6 +762,9 @@ export default function CheckIn() {
                         }`}
                       >
                         <span>{p.full_name}</span>
+                        {p.status === 'boarded' && (
+                          <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" title="Sudah Naik Pesawat" />
+                        )}
                         <span
                           className={`px-2 py-0.5 rounded text-[11px] font-mono font-bold ${
                             isActive
@@ -1068,18 +1087,25 @@ export default function CheckIn() {
                           {(flight?.airline?.name || 'Kenari').split(' ')[0]}
                         </span>
                       </div>
-                      <span className="px-2.5 py-0.5 rounded bg-tint text-brand-fg text-[10px] font-extrabold uppercase tracking-wider">
-                        {activePassenger?.seat_class === 'business' ? 'BUSINESS' : 'ECONOMY'}
-                      </span>
+                      {isPassengerBoarded ? (
+                        <span className="px-2.5 py-0.5 rounded bg-emerald-600 text-white text-[10px] font-extrabold uppercase tracking-wider flex items-center gap-1 shadow-2xs">
+                          <span className="material-symbols-outlined text-[13px]">check_circle</span>
+                          <span>BOARDED</span>
+                        </span>
+                      ) : (
+                        <span className="px-2.5 py-0.5 rounded bg-tint text-brand-fg text-[10px] font-extrabold uppercase tracking-wider">
+                          {activePassenger?.seat_class === 'business' ? 'BUSINESS' : 'ECONOMY'}
+                        </span>
+                      )}
                     </div>
 
                     {/* High-Contrast Gate Machine QR Code with Click-to-Zoom */}
                     <div
                       onClick={() => setIsQrModalOpen(true)}
-                      className="my-4 p-3.5 bg-white rounded-control shadow-2xs border border-line flex flex-col items-center cursor-pointer group/qr transition-transform hover:scale-105 duration-200"
-                      title="Klik untuk memperbesar QR code boarding pass"
+                      className="my-4 p-3.5 bg-white rounded-control shadow-2xs border border-line flex flex-col items-center cursor-pointer group/qr transition-transform hover:scale-105 duration-200 relative overflow-hidden"
+                      title={isPassengerBoarded ? 'Boarding pass telah digunakan untuk naik pesawat' : 'Klik untuk memperbesar QR code boarding pass'}
                     >
-                      <div className="w-36 h-36 flex items-center justify-center p-1 bg-white rounded border border-slate-100">
+                      <div className={`w-36 h-36 flex items-center justify-center p-1 bg-white rounded border border-slate-100 relative ${isPassengerBoarded ? 'opacity-30 grayscale' : ''}`}>
                         <RealQrCode
                           value={
                             activeBoardingPass?.boarding_pass_code ||
@@ -1091,9 +1117,31 @@ export default function CheckIn() {
                           alt="Boarding Pass QR Code"
                         />
                       </div>
+
+                      {/* Watermark / Stamp Telah Digunakan bila sudah boarded */}
+                      {isPassengerBoarded && (
+                        <div className="absolute inset-0 bg-slate-900/65 backdrop-blur-[1px] flex flex-col items-center justify-center p-3 text-center text-white animate-fadeIn rounded-control">
+                          <div className="w-8 h-8 rounded-full bg-emerald-500/20 text-emerald-400 flex items-center justify-center mb-1">
+                            <span className="material-symbols-outlined text-[20px]">verified</span>
+                          </div>
+                          <span className="text-[11px] font-black uppercase tracking-wider text-white">TELAH DIGUNAKAN</span>
+                          <span className="text-[9px] text-slate-200 font-semibold leading-tight mt-0.5">Sudah Di Pesawat</span>
+                          <span className="text-[8px] text-slate-300 font-mono mt-1 opacity-80">Single-Scan Locked</span>
+                        </div>
+                      )}
+
                       <div className="mt-1.5 text-[10px] font-semibold text-slate-600 flex items-center gap-1 print:hidden">
-                        <span className="material-symbols-outlined text-[13px]">zoom_in</span>
-                        <span>Perbesar QR Gerbang</span>
+                        {isPassengerBoarded ? (
+                          <span className="text-emerald-700 font-bold flex items-center gap-1">
+                            <span className="material-symbols-outlined text-[13px]">verified</span>
+                            <span>Boarding Selesai</span>
+                          </span>
+                        ) : (
+                          <>
+                            <span className="material-symbols-outlined text-[13px]">zoom_in</span>
+                            <span>Perbesar QR Gerbang</span>
+                          </>
+                        )}
                       </div>
                     </div>
 
@@ -1752,6 +1800,13 @@ export default function CheckIn() {
             <h3 className="text-lg font-bold text-slate-900 mb-4">
               Boarding Pass QR Code
             </h3>
+
+            {isPassengerBoarded && (
+              <div className="mb-3 px-3 py-2 rounded bg-amber-500/10 border border-amber-500/30 text-amber-700 text-xs font-semibold flex items-center justify-center gap-1.5">
+                <span className="material-symbols-outlined text-[16px]">lock</span>
+                <span>Boarding pass ini telah diverifikasi di gerbang &amp; tidak dapat dipakai ulang.</span>
+              </div>
+            )}
 
             <div className="p-4 bg-white rounded-control border border-slate-200 inline-block mb-4 shadow-sm">
               <RealQrCode
