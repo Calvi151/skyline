@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import AdminLayout from '../../components/layout/AdminLayout'
 import { api } from '../../lib/api'
 import Pagination, { CompactPagination } from '../../components/common/Pagination'
+import { AirlineLogo } from '../../components/common/AirlineLogo'
 
 export interface AirportInfo {
   id: number
@@ -836,7 +837,13 @@ export default function FlightsPage() {
                         {/* Maskapai */}
                         <td className="py-4 px-4">
                           <div className="flex items-center gap-2">
-                            <div className="w-2.5 h-2.5 rounded-full bg-brand shrink-0" />
+                            <AirlineLogo
+                              code={flight.airline?.code || flight.flightNumber.split('-')[0]}
+                              name={flight.airline?.name}
+                              logo={flight.airline?.logo}
+                              size="xs"
+                              className="rounded shrink-0"
+                            />
                             <span className="font-medium text-ink truncate max-w-[130px]">
                               {flight.airline?.name || 'Maskapai'}
                             </span>

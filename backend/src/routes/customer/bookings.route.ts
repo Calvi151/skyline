@@ -600,6 +600,82 @@ bookingsRoute.get('/:id', async (c) => {
 })
 
 /**
+ * POST /api/bookings/:id/cancel
+ * Membatalkan pesanan yang masih berstatus 'pending' dan melepaskan kursi kembali
+ */
+bookingsRoute.post('/:id/cancel', async (c) => {
+  const userId = c.get('userId')
+  const userRole = c.get('user')?.role
+  const id = Number(c.req.param('id'))
+
+  if (isNaN(id)) {
+    return c.json({ error: true, message: 'ID pemesanan tidak valid' }, 400)
+  }
+
+  const [booking] = await db
+    .select()
+    .from(bookings)
+    .where(eq(bookings.id, id))
+    .limit(1)
+
+  if (!booking) {
+    return c.json({ error: true, message: 'Pesanan tidak ditemukan' }, 404)
+  }
+
+  if (booking.userId !== userId && userRole !== 'admin' && userRole !== 'staff') {
+    return c.json({ error: true, message: 'Anda tidak memiliki akses ke pesanan ini' }, 403)
+  }
+
+  if (booking.status !== 'pending') {
+    return c.json(
+      {
+        error: true,
+        message: `Hanya pesanan pending yang dapat dibatalkan langsung. Status saat ini: ${booking.status}`,
+      },
+      400,
+    )
+  }
+
+  await db.transaction(async (tx) => {
+    const passengers = await tx
+      .select({ seatId: bookingPassengers.seatId })
+      .from(bookingPassengers)
+      .where(eq(bookingPassengers.bookingId, booking.id))
+
+    const seatIds = passengers
+      .map((p) => p.seatId)
+      .filter((sid): sid is number => typeof sid === 'number')
+
+    await tx
+      .update(bookings)
+      .set({ status: 'cancelled' })
+      .where(eq(bookings.id, booking.id))
+
+    if (seatIds.length > 0) {
+      await tx
+        .update(seats)
+        .set({ isAvailable: true })
+        .where(inArray(seats.id, seatIds))
+    }
+
+    await tx
+      .update(payments)
+      .set({ paymentStatus: 'failed' })
+      .where(and(eq(payments.bookingId, booking.id), eq(payments.paymentStatus, 'pending')))
+  })
+
+  return c.json({
+    error: false,
+    message: 'Pesanan berhasil dibatalkan dan kursi telah dilepaskan kembali.',
+    data: {
+      booking_id: booking.id,
+      booking_code: booking.bookingCode,
+      status: 'cancelled',
+    },
+  })
+})
+
+/**
  * GET /api/bookings/:id/e-ticket
  * Unduh E-Ticket dalam format PDF dengan QR Code (ETK-02, ETK-03)
  * Wajib autentikasi, hanya pemilik booking (atau admin/staff), booking harus berstatus 'paid'

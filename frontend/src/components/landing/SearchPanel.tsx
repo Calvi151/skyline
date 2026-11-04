@@ -31,6 +31,7 @@ export default function SearchPanel() {
 
   // Trip Mode
   const [tripType, setTripType] = useState<TripType>('oneway')
+  const [isGroupRoundTrip, setIsGroupRoundTrip] = useState(false)
 
   // Form states
   const [origin, setOrigin] = useState<AirportItem>(
@@ -123,10 +124,16 @@ export default function SearchPanel() {
     setErrorMsg('')
   }
 
+  // Check if round-trip is active (direct PP or Group with PP)
+  const isRoundTripActive = tripType === 'roundtrip' || (tripType === 'group' && isGroupRoundTrip)
+
+  // Minimum passengers constraint based on trip mode
+  const minPassengers = tripType === 'group' ? 2 : 1
+
   // Handle trip type switch
   const handleSelectTripType = (type: TripType) => {
     setTripType(type)
-    if (type === 'group' && passengers < 3) {
+    if (type === 'group' && passengers < 2) {
       setPassengers(4) // default group squad
     }
     setErrorMsg('')
@@ -142,8 +149,13 @@ export default function SearchPanel() {
       return
     }
 
-    if (tripType === 'roundtrip' && returnDate < departureDate) {
+    if (isRoundTripActive && returnDate < departureDate) {
       setErrorMsg('Tanggal pulang tidak boleh lebih awal dari tanggal berangkat.')
+      return
+    }
+
+    if (tripType === 'group' && passengers < 2) {
+      setErrorMsg('Mode Berangkat Bareng membutuhkan minimal 2 penumpang.')
       return
     }
 
@@ -156,7 +168,7 @@ export default function SearchPanel() {
       destination: destination.code,
       destinationCity: destination.primaryCity,
       date: departureDate,
-      returnDate: tripType === 'roundtrip' ? returnDate : undefined,
+      returnDate: isRoundTripActive ? returnDate : undefined,
       tripType,
       passengers,
       cabinClass,
@@ -184,7 +196,7 @@ export default function SearchPanel() {
       class: cabinClass,
     })
 
-    if (tripType === 'roundtrip') {
+    if (isRoundTripActive) {
       params.set('trip', 'roundtrip')
       params.set('returnDate', returnDate)
     }
@@ -220,9 +232,16 @@ export default function SearchPanel() {
     if (r.returnDate) {
       const validRetDate = r.returnDate < validDepDate ? validDepDate : r.returnDate
       setReturnDate(validRetDate)
+      if (r.tripType === 'group') {
+        setIsGroupRoundTrip(true)
+      }
+    } else {
+      setIsGroupRoundTrip(false)
     }
-    setTripType(r.tripType || 'oneway')
-    setPassengers(r.passengers)
+    const mode = r.tripType || 'oneway'
+    setTripType(mode)
+    const paxCount = mode === 'group' ? Math.max(2, r.passengers || 4) : Math.max(1, r.passengers || 1)
+    setPassengers(paxCount)
     setCabinClass(r.cabinClass as any)
   }
 
@@ -236,11 +255,11 @@ export default function SearchPanel() {
 
         {/* ─── Top Trip Type Switcher & Promo Badges ─── */}
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4 pb-3 border-b border-line/60">
-          <div className="flex items-center gap-1.5 sm:gap-2">
+          <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
             <button
               type="button"
               onClick={() => handleSelectTripType('oneway')}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all cursor-pointer ${
                 tripType === 'oneway'
                   ? 'bg-brand text-white shadow-xs'
                   : 'bg-panel hover:bg-tint text-subtle hover:text-ink'
@@ -252,7 +271,7 @@ export default function SearchPanel() {
             <button
               type="button"
               onClick={() => handleSelectTripType('roundtrip')}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all inline-flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer ${
                 tripType === 'roundtrip'
                   ? 'bg-brand text-white shadow-xs'
                   : 'bg-panel hover:bg-tint text-subtle hover:text-ink'
@@ -273,7 +292,7 @@ export default function SearchPanel() {
             <button
               type="button"
               onClick={() => handleSelectTripType('group')}
-              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all inline-flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer ${
                 tripType === 'group'
                   ? 'bg-brand text-white shadow-xs'
                   : 'bg-panel hover:bg-tint text-subtle hover:text-ink'
@@ -288,232 +307,253 @@ export default function SearchPanel() {
                     : 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
                 }`}
               >
-                Diskon s/d 15%
+                Min. 2 Org • s/d 15%
               </span>
             </button>
           </div>
 
-          {/* Dynamic Promo Banner */}
-          {(tripType === 'group' || passengers >= 2) && (
-            <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
-              <span className="material-symbols-outlined text-[14px]">local_activity</span>
-              <span>
-                {passengers >= 5
-                  ? `Super Group Diskon 15% Aktif (${passengers} Penumpang)`
-                  : passengers >= 3
-                  ? `Squad Promo Diskon 10% Aktif (${passengers} Penumpang)`
-                  : `Promo Duo Diskon 5% Aktif (${passengers} Penumpang)`}
-              </span>
-            </div>
-          )}
+          {/* Dynamic Badges & PP Toggle for Group */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {tripType === 'group' && (
+              <label className="flex items-center gap-1.5 text-xs font-semibold text-ink cursor-pointer bg-panel hover:bg-tint px-2.5 py-1 rounded-full border border-line transition-colors">
+                <input
+                  type="checkbox"
+                  checked={isGroupRoundTrip}
+                  onChange={(e) => setIsGroupRoundTrip(e.target.checked)}
+                  className="rounded border-line text-brand focus:ring-brand w-3.5 h-3.5 cursor-pointer"
+                />
+                <span>Termasuk Tiket Pulang (PP)</span>
+                <span className="text-[10px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold px-1.5 py-0.2 rounded">
+                  +10% PP
+                </span>
+              </label>
+            )}
+
+            {/* Dynamic Promo Banner */}
+            {(tripType === 'group' || passengers >= 2) && (
+              <div className="flex items-center gap-1 text-[11px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/10 border border-emerald-500/20 px-2.5 py-1 rounded-full">
+                <span className="material-symbols-outlined text-[14px]">local_activity</span>
+                <span>
+                  {passengers >= 5
+                    ? `Super Group Diskon 15% Aktif (${passengers} Penumpang)`
+                    : passengers >= 3
+                    ? `Squad Promo Diskon 10% Aktif (${passengers} Penumpang)`
+                    : `Promo Duo Diskon 5% Aktif (${passengers} Penumpang)`}
+                </span>
+              </div>
+            )}
+          </div>
         </div>
 
-        {/* ─── Search Fields Grid ─── */}
-        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-4 items-center">
-          {/* Field 1: Dari (Origin City-First) */}
-          <div className="md:col-span-3 relative">
-            <button
-              type="button"
-              onClick={() => {
-                setSearchQuery('')
-                setActiveDropdown(activeDropdown === 'origin' ? null : 'origin')
-              }}
-              className={`w-full flex flex-col text-left px-3.5 py-2.5 rounded-control transition-all border ${
-                activeDropdown === 'origin'
-                  ? 'border-brand-fg bg-panel shadow-sm ring-2 ring-brand-fg/20'
-                  : 'bg-page/70 hover:bg-page border-transparent'
-              }`}
-            >
-              <span className="text-[10px] uppercase tracking-wider text-subtle font-bold">
-                Dari (Kota Asal)
-              </span>
-              <div className="flex items-center justify-between gap-1 mt-0.5">
-                <span className="text-base sm:text-lg font-bold text-ink truncate">
-                  {origin.primaryCity || origin.city}
+        {/* ─── Search Fields Grid (12 Columns, Balanced Desktop Distribution) ─── */}
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-3 md:gap-3 items-center">
+          {/* Field 1 & 2: Rute Asal & Tujuan + Swap (5 cols on desktop) */}
+          <div className="md:col-span-5 grid grid-cols-1 md:grid-cols-[1fr_auto_1fr] items-center gap-2 md:gap-1.5 relative">
+            {/* Origin (Dari) */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('')
+                  setActiveDropdown(activeDropdown === 'origin' ? null : 'origin')
+                }}
+                className={`w-full flex flex-col text-left px-3.5 py-2 rounded-control transition-all border ${
+                  activeDropdown === 'origin'
+                    ? 'border-brand-fg bg-panel shadow-sm ring-2 ring-brand-fg/20'
+                    : 'bg-page/70 hover:bg-page border-transparent'
+                }`}
+              >
+                <span className="text-[10px] uppercase tracking-wider text-subtle font-bold">
+                  Dari (Kota Asal)
                 </span>
-                <span className="px-1.5 py-0.5 rounded bg-tint text-brand-fg font-mono text-[11px] font-bold shrink-0">
-                  {origin.code}
-                </span>
-              </div>
-              <span className="text-[11px] text-subtle truncate mt-0.5">{origin.name}</span>
-            </button>
-
-            {/* Origin Autocomplete Popover */}
-            {activeDropdown === 'origin' && (
-              <div className="absolute top-[calc(100%+8px)] left-0 w-full min-w-[320px] bg-white dark:bg-[#112038] rounded-xl border border-line shadow-2xl p-2.5 z-[100] ring-1 ring-black/10 dark:ring-white/10 opacity-100 animate-fadeIn">
-                <div className="p-1 mb-1.5 relative">
-                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-subtle">
-                    search
+                <div className="flex items-center justify-between gap-1 mt-0.5">
+                  <span className="text-base sm:text-lg font-bold text-ink truncate">
+                    {origin.primaryCity || origin.city}
                   </span>
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Ketik nama kota (cth: Bali, Jogja, Surabaya)..."
-                    autoFocus
-                    className="w-full pl-9 pr-3 py-2 text-xs bg-panel border border-line rounded-lg text-ink focus:outline-none focus:ring-2 focus:ring-brand-fg/30 font-medium"
-                  />
-                </div>
-                <div className="text-[10px] uppercase font-bold text-subtle px-2 py-1 border-b border-line flex items-center justify-between">
-                  <span>{searchQuery.trim().length >= 1 ? 'Hasil Pencarian Kota' : 'Kota & Bandara Populer'}</span>
-                  {isSearchingApi && <span className="text-[10px] lowercase text-subtle italic">mencari...</span>}
-                </div>
-                <div className="max-h-60 overflow-y-auto space-y-1 mt-1">
-                  {displayedAirports.length === 0 && !isSearchingApi ? (
-                    <div className="p-4 text-center text-xs text-subtle">
-                      Tidak menemukan kota &quot;{searchQuery}&quot;. Coba nama lain atau kode bandara.
-                    </div>
-                  ) : (
-                    displayedAirports.map((airport) => (
-                      <div
-                        key={airport.code}
-                        onClick={() => {
-                          setOrigin(airport)
-                          setActiveDropdown(null)
-                          setErrorMsg('')
-                        }}
-                        className={`flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition-colors ${
-                          origin.code === airport.code
-                            ? 'bg-tint text-ink'
-                            : 'hover:bg-page text-ink'
-                        }`}
-                      >
-                        <div className="text-left min-w-0 pr-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs sm:text-sm font-bold text-ink">
-                              {airport.primaryCity || airport.city}
-                            </span>
-                            <span className="px-1.5 py-0.2 rounded bg-panel border border-line text-brand-fg font-mono text-[10px] font-bold">
-                              {airport.code}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-subtle truncate mt-0.5">{airport.name}</p>
-                        </div>
-                        {origin.code === airport.code && (
-                          <span className="material-symbols-outlined text-brand-fg text-[18px]">
-                            check
-                          </span>
-                        )}
-                      </div>
-                    ))
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Swap Button with 180deg Spin Animation */}
-          <div className="hidden md:flex md:col-span-1 justify-center items-center">
-            <button
-              type="button"
-              onClick={handleSwap}
-              aria-label="Tukar rute asal dan tujuan"
-              title="Tukar rute"
-              className={`w-9 h-9 rounded-full border border-line bg-panel hover:bg-tint hover:border-brand-fg text-brand-fg flex items-center justify-center transition-all duration-300 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-fg active:scale-90 ${
-                isSwapping ? 'rotate-180 scale-110' : ''
-              }`}
-            >
-              <span className="material-symbols-outlined text-[18px] select-none">
-                swap_horiz
-              </span>
-            </button>
-          </div>
-
-          {/* Field 2: Ke (Destination City-First) */}
-          <div className="md:col-span-3 relative">
-            <button
-              type="button"
-              onClick={() => {
-                setSearchQuery('')
-                setActiveDropdown(activeDropdown === 'destination' ? null : 'destination')
-              }}
-              className={`w-full flex flex-col text-left px-3.5 py-2.5 rounded-control transition-all border ${
-                activeDropdown === 'destination'
-                  ? 'border-brand-fg bg-panel shadow-sm ring-2 ring-brand-fg/20'
-                  : 'bg-page/70 hover:bg-page border-transparent'
-              }`}
-            >
-              <span className="text-[10px] uppercase tracking-wider text-subtle font-bold">
-                Ke (Kota Tujuan)
-              </span>
-              <div className="flex items-center justify-between gap-1 mt-0.5">
-                <span className="text-base sm:text-lg font-bold text-ink truncate">
-                  {destination.primaryCity || destination.city}
-                </span>
-                <span className="px-1.5 py-0.5 rounded bg-tint text-brand-fg font-mono text-[11px] font-bold shrink-0">
-                  {destination.code}
-                </span>
-              </div>
-              <span className="text-[11px] text-subtle truncate mt-0.5">{destination.name}</span>
-            </button>
-
-            {/* Destination Autocomplete Popover */}
-            {activeDropdown === 'destination' && (
-              <div className="absolute top-[calc(100%+8px)] left-0 w-full min-w-[320px] bg-white dark:bg-[#112038] rounded-xl border border-line shadow-2xl p-2.5 z-[100] ring-1 ring-black/10 dark:ring-white/10 opacity-100 animate-fadeIn">
-                <div className="p-1 mb-1.5 relative">
-                  <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-subtle">
-                    search
+                  <span className="px-1.5 py-0.5 rounded bg-tint text-brand-fg font-mono text-[11px] font-bold shrink-0">
+                    {origin.code}
                   </span>
-                  <input
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    placeholder="Ketik nama kota (cth: Bali, Jogja, Surabaya)..."
-                    autoFocus
-                    className="w-full pl-9 pr-3 py-2 text-xs bg-panel border border-line rounded-lg text-ink focus:outline-none focus:ring-2 focus:ring-brand-fg/30 font-medium"
-                  />
                 </div>
-                <div className="text-[10px] uppercase font-bold text-subtle px-2 py-1 border-b border-line flex items-center justify-between">
-                  <span>{searchQuery.trim().length >= 1 ? 'Hasil Pencarian Kota' : 'Kota & Bandara Populer'}</span>
-                  {isSearchingApi && <span className="text-[10px] lowercase text-subtle italic">mencari...</span>}
-                </div>
-                <div className="max-h-60 overflow-y-auto space-y-1 mt-1">
-                  {displayedAirports.length === 0 && !isSearchingApi ? (
-                    <div className="p-4 text-center text-xs text-subtle">
-                      Tidak menemukan kota &quot;{searchQuery}&quot;. Coba nama lain atau kode bandara.
-                    </div>
-                  ) : (
-                    displayedAirports.map((airport) => (
-                      <div
-                        key={airport.code}
-                        onClick={() => {
-                          setDestination(airport)
-                          setActiveDropdown(null)
-                          setErrorMsg('')
-                        }}
-                        className={`flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition-colors ${
-                          destination.code === airport.code
-                            ? 'bg-tint text-ink'
-                            : 'hover:bg-page text-ink'
-                        }`}
-                      >
-                        <div className="text-left min-w-0 pr-2">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs sm:text-sm font-bold text-ink">
-                              {airport.primaryCity || airport.city}
-                            </span>
-                            <span className="px-1.5 py-0.2 rounded bg-panel border border-line text-brand-fg font-mono text-[10px] font-bold">
-                              {airport.code}
-                            </span>
-                          </div>
-                          <p className="text-[11px] text-subtle truncate mt-0.5">{airport.name}</p>
-                        </div>
-                        {destination.code === airport.code && (
-                          <span className="material-symbols-outlined text-brand-fg text-[18px]">
-                            check
-                          </span>
-                        )}
+                <span className="text-[11px] text-subtle truncate mt-0.5">{origin.name}</span>
+              </button>
+
+              {/* Origin Autocomplete Popover */}
+              {activeDropdown === 'origin' && (
+                <div className="absolute top-[calc(100%+8px)] left-0 w-full min-w-[280px] sm:min-w-[320px] bg-white dark:bg-[#112038] rounded-xl border border-line shadow-2xl p-2.5 z-[100] ring-1 ring-black/10 dark:ring-white/10 opacity-100 animate-fadeIn">
+                  <div className="p-1 mb-1.5 relative">
+                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-subtle">
+                      search
+                    </span>
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Ketik nama kota (cth: Bali, Jogja, Surabaya)..."
+                      autoFocus
+                      className="w-full pl-9 pr-3 py-2 text-xs bg-panel border border-line rounded-lg text-ink focus:outline-none focus:ring-2 focus:ring-brand-fg/30 font-medium"
+                    />
+                  </div>
+                  <div className="text-[10px] uppercase font-bold text-subtle px-2 py-1 border-b border-line flex items-center justify-between">
+                    <span>{searchQuery.trim().length >= 1 ? 'Hasil Pencarian Kota' : 'Kota & Bandara Populer'}</span>
+                    {isSearchingApi && <span className="text-[10px] lowercase text-subtle italic">mencari...</span>}
+                  </div>
+                  <div className="max-h-60 overflow-y-auto space-y-1 mt-1">
+                    {displayedAirports.length === 0 && !isSearchingApi ? (
+                      <div className="p-4 text-center text-xs text-subtle">
+                        Tidak menemukan kota &quot;{searchQuery}&quot;. Coba nama lain atau kode bandara.
                       </div>
-                    ))
-                  )}
+                    ) : (
+                      displayedAirports.map((airport) => (
+                        <div
+                          key={airport.code}
+                          onClick={() => {
+                            setOrigin(airport)
+                            setActiveDropdown(null)
+                            setErrorMsg('')
+                          }}
+                          className={`flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition-colors ${
+                            origin.code === airport.code
+                              ? 'bg-tint text-ink'
+                              : 'hover:bg-page text-ink'
+                          }`}
+                        >
+                          <div className="text-left min-w-0 pr-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs sm:text-sm font-bold text-ink">
+                                {airport.primaryCity || airport.city}
+                              </span>
+                              <span className="px-1.5 py-0.2 rounded bg-panel border border-line text-brand-fg font-mono text-[10px] font-bold">
+                                {airport.code}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-subtle truncate mt-0.5">{airport.name}</p>
+                          </div>
+                          {origin.code === airport.code && (
+                            <span className="material-symbols-outlined text-brand-fg text-[18px]">
+                              check
+                            </span>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
-              </div>
-            )}
+              )}
+            </div>
+
+            {/* Swap Button */}
+            <div className="flex justify-center items-center -my-1 md:my-0">
+              <button
+                type="button"
+                onClick={handleSwap}
+                aria-label="Tukar rute asal dan tujuan"
+                title="Tukar rute"
+                className={`w-8 h-8 rounded-full border border-line bg-panel hover:bg-tint hover:border-brand-fg text-brand-fg flex items-center justify-center transition-all duration-300 shadow-sm focus:outline-none focus:ring-2 focus:ring-brand-fg active:scale-90 ${
+                  isSwapping ? 'rotate-180 scale-110' : ''
+                }`}
+              >
+                <span className="material-symbols-outlined text-[17px] select-none">
+                  swap_horiz
+                </span>
+              </button>
+            </div>
+
+            {/* Destination (Ke) */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => {
+                  setSearchQuery('')
+                  setActiveDropdown(activeDropdown === 'destination' ? null : 'destination')
+                }}
+                className={`w-full flex flex-col text-left px-3.5 py-2 rounded-control transition-all border ${
+                  activeDropdown === 'destination'
+                    ? 'border-brand-fg bg-panel shadow-sm ring-2 ring-brand-fg/20'
+                    : 'bg-page/70 hover:bg-page border-transparent'
+                }`}
+              >
+                <span className="text-[10px] uppercase tracking-wider text-subtle font-bold">
+                  Ke (Kota Tujuan)
+                </span>
+                <div className="flex items-center justify-between gap-1 mt-0.5">
+                  <span className="text-base sm:text-lg font-bold text-ink truncate">
+                    {destination.primaryCity || destination.city}
+                  </span>
+                  <span className="px-1.5 py-0.5 rounded bg-tint text-brand-fg font-mono text-[11px] font-bold shrink-0">
+                    {destination.code}
+                  </span>
+                </div>
+                <span className="text-[11px] text-subtle truncate mt-0.5">{destination.name}</span>
+              </button>
+
+              {/* Destination Autocomplete Popover */}
+              {activeDropdown === 'destination' && (
+                <div className="absolute top-[calc(100%+8px)] left-0 md:left-auto md:right-0 w-full min-w-[280px] sm:min-w-[320px] bg-white dark:bg-[#112038] rounded-xl border border-line shadow-2xl p-2.5 z-[100] ring-1 ring-black/10 dark:ring-white/10 opacity-100 animate-fadeIn">
+                  <div className="p-1 mb-1.5 relative">
+                    <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-[18px] text-subtle">
+                      search
+                    </span>
+                    <input
+                      type="text"
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      placeholder="Ketik nama kota (cth: Bali, Jogja, Surabaya)..."
+                      autoFocus
+                      className="w-full pl-9 pr-3 py-2 text-xs bg-panel border border-line rounded-lg text-ink focus:outline-none focus:ring-2 focus:ring-brand-fg/30 font-medium"
+                    />
+                  </div>
+                  <div className="text-[10px] uppercase font-bold text-subtle px-2 py-1 border-b border-line flex items-center justify-between">
+                    <span>{searchQuery.trim().length >= 1 ? 'Hasil Pencarian Kota' : 'Kota & Bandara Populer'}</span>
+                    {isSearchingApi && <span className="text-[10px] lowercase text-subtle italic">mencari...</span>}
+                  </div>
+                  <div className="max-h-60 overflow-y-auto space-y-1 mt-1">
+                    {displayedAirports.length === 0 && !isSearchingApi ? (
+                      <div className="p-4 text-center text-xs text-subtle">
+                        Tidak menemukan kota &quot;{searchQuery}&quot;. Coba nama lain atau kode bandara.
+                      </div>
+                    ) : (
+                      displayedAirports.map((airport) => (
+                        <div
+                          key={airport.code}
+                          onClick={() => {
+                            setDestination(airport)
+                            setActiveDropdown(null)
+                            setErrorMsg('')
+                          }}
+                          className={`flex items-center justify-between p-2.5 rounded-lg cursor-pointer transition-colors ${
+                            destination.code === airport.code
+                              ? 'bg-tint text-ink'
+                              : 'hover:bg-page text-ink'
+                          }`}
+                        >
+                          <div className="text-left min-w-0 pr-2">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs sm:text-sm font-bold text-ink">
+                                {airport.primaryCity || airport.city}
+                              </span>
+                              <span className="px-1.5 py-0.2 rounded bg-panel border border-line text-brand-fg font-mono text-[10px] font-bold">
+                                {airport.code}
+                              </span>
+                            </div>
+                            <p className="text-[11px] text-subtle truncate mt-0.5">{airport.name}</p>
+                          </div>
+                          {destination.code === airport.code && (
+                            <span className="material-symbols-outlined text-brand-fg text-[18px]">
+                              check
+                            </span>
+                          )}
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
 
-          {/* Field 3: Tanggal (Berangkat / Pulang) */}
-          <div className={`${tripType === 'roundtrip' ? 'md:col-span-3' : 'md:col-span-2'} relative`}>
-            {tripType === 'roundtrip' ? (
+          {/* Field 3: Tanggal (Berangkat / Pulang) (3 cols on desktop) */}
+          <div className="md:col-span-3 relative">
+            {isRoundTripActive ? (
               <div className="grid grid-cols-2 gap-2">
                 {/* Tanggal Pergi */}
                 <div className="w-full flex flex-col text-left px-2.5 py-2 rounded-control bg-page/70 hover:bg-page border border-transparent transition-colors">
@@ -535,112 +575,192 @@ export default function SearchPanel() {
                 </div>
                 {/* Tanggal Pulang */}
                 <div className="w-full flex flex-col text-left px-2.5 py-2 rounded-control bg-page/70 hover:bg-page border border-transparent transition-colors">
-                  <span className="text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400 font-bold">
-                    Pulang (PP)
-                  </span>
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10px] uppercase tracking-wider text-emerald-600 dark:text-emerald-400 font-bold">
+                      Pulang (PP)
+                    </span>
+                    <span className="text-[9px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold px-1 rounded">
+                      -10%
+                    </span>
+                  </div>
                   <input
                     type="date"
                     value={returnDate}
                     onChange={(e) => setReturnDate(e.target.value)}
-                    min={departureDate}
+                    min={departureDate || todayStr}
                     className="bg-transparent text-xs sm:text-sm font-bold text-ink mt-0.5 focus:outline-none cursor-pointer"
                   />
                 </div>
               </div>
             ) : (
-              <div className="w-full flex flex-col text-left px-3 py-2.5 rounded-control bg-page/70 hover:bg-page border border-transparent transition-colors">
-                <span className="text-[10px] uppercase tracking-wider text-subtle font-bold">
-                  Tanggal Berangkat
-                </span>
+              <div className="w-full flex flex-col text-left px-3 py-2 rounded-control bg-page/70 hover:bg-page border border-transparent transition-colors">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-wider text-subtle font-bold">
+                    Tanggal Berangkat
+                  </span>
+                  <span className="text-[10px] text-subtle font-medium">Sekali jalan</span>
+                </div>
                 <input
                   type="date"
                   value={departureDate}
-                  onChange={(e) => setDepartureDate(e.target.value)}
+                  onChange={(e) => {
+                    setDepartureDate(e.target.value)
+                    if (e.target.value > returnDate) {
+                      setReturnDate(e.target.value)
+                    }
+                  }}
                   min={todayStr}
                   className="bg-transparent text-sm font-bold text-ink mt-0.5 focus:outline-none cursor-pointer"
                 />
-                <span className="text-[11px] text-subtle">Sekali jalan</span>
               </div>
             )}
           </div>
 
-          {/* Field 4: Penumpang & Kelas */}
-          <div className={`${tripType === 'roundtrip' ? 'md:col-span-1' : 'md:col-span-1'} relative`}>
+          {/* Field 4: Penumpang & Kelas (2 cols on desktop) */}
+          <div className="md:col-span-2 relative">
             <button
               type="button"
               onClick={() =>
                 setActiveDropdown(activeDropdown === 'passengers' ? null : 'passengers')
               }
-              className={`w-full flex flex-col text-left px-2.5 py-2.5 rounded-control transition-all border ${
+              className={`w-full flex flex-col text-left px-3 py-2 rounded-control transition-all border cursor-pointer ${
                 activeDropdown === 'passengers'
                   ? 'border-brand-fg bg-panel shadow-sm ring-2 ring-brand-fg/20'
                   : 'bg-page/70 hover:bg-page border-transparent'
               }`}
             >
-              <span className="text-[10px] uppercase tracking-wider text-subtle font-bold">
-                Penumpang
-              </span>
-              <div className="text-sm font-bold text-ink mt-0.5 truncate tabular-nums flex items-center gap-1">
-                <span>{passengers} Org</span>
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase tracking-wider text-subtle font-bold">
+                  Penumpang & Kelas
+                </span>
                 {groupDiscount > 0 && (
-                  <span className="w-2 h-2 rounded-full bg-emerald-500 shrink-0" title={`Diskon ${groupDiscount}%`} />
+                  <span className="text-[9px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/15 px-1.5 py-0.2 rounded-full">
+                    -{groupDiscount}%
+                  </span>
                 )}
               </div>
-              <span className="text-[10px] text-subtle capitalize truncate">
-                {cabinClass === 'economy' ? 'Ekonomi' : 'Bisnis'}
-              </span>
+              <div className="text-sm font-bold text-ink mt-0.5 truncate tabular-nums flex items-center gap-1.5">
+                <span>{passengers} Penumpang</span>
+              </div>
+              <div className="flex items-center gap-1 text-[11px] text-subtle truncate">
+                <span className="capitalize">{cabinClass === 'economy' ? 'Ekonomi' : 'Bisnis'}</span>
+                {tripType === 'group' && (
+                  <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold">• Grup</span>
+                )}
+              </div>
             </button>
 
             {/* Passengers & Class Popover */}
             {activeDropdown === 'passengers' && (
-              <div className="absolute top-[calc(100%+8px)] right-0 w-72 bg-raised rounded-xl border border-line shadow-2xl p-4 z-50 animate-fadeIn">
-                <div className="mb-4">
-                  <div className="flex items-center justify-between mb-1">
+              <div className="absolute top-[calc(100%+8px)] right-0 w-80 bg-raised rounded-xl border border-line shadow-2xl p-4 z-50 animate-fadeIn">
+                {/* Popover Header */}
+                <div className="flex items-center justify-between mb-3 pb-2.5 border-b border-line">
+                  <div>
                     <span className="text-xs font-bold text-ink block">
-                      Jumlah Penumpang
+                      Kapasitas Penumpang
                     </span>
-                    {passengers >= 2 && (
-                      <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded-full">
-                        Diskon {groupDiscount}%
-                      </span>
-                    )}
+                    <span className="text-[10px] text-subtle">
+                      {tripType === 'group'
+                        ? 'Mode Berangkat Bareng (Min. 2 orang)'
+                        : 'Maksimal 9 orang per pesanan'}
+                    </span>
                   </div>
-                  <p className="text-[11px] text-subtle mb-3">
-                    Pesan $\ge$ 2 orang otomatis dapat diskon rombongan &quot;Berangkat Bareng&quot;.
-                  </p>
-                  <div className="flex items-center justify-between p-2 rounded-lg bg-panel border border-line">
+                  {groupDiscount > 0 && (
+                    <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-full shrink-0">
+                      Diskon {groupDiscount}%
+                    </span>
+                  )}
+                </div>
+
+                {/* Stepper with Min/Max Capacity */}
+                <div className="mb-3">
+                  <div className="flex items-center justify-between p-2.5 rounded-lg bg-panel border border-line">
                     <button
                       type="button"
-                      disabled={passengers <= 1}
-                      onClick={() => setPassengers(Math.max(1, passengers - 1))}
-                      className="w-8 h-8 rounded-full border border-line bg-raised flex items-center justify-center text-ink disabled:opacity-30 hover:bg-tint transition-colors active:scale-90"
+                      disabled={passengers <= minPassengers}
+                      onClick={() =>
+                        setPassengers(Math.max(minPassengers, passengers - 1))
+                      }
+                      className="w-9 h-9 rounded-full border border-line bg-raised flex items-center justify-center text-ink disabled:opacity-30 disabled:cursor-not-allowed hover:bg-tint transition-all active:scale-90"
+                      title={
+                        tripType === 'group' && passengers <= 2
+                          ? 'Minimal 2 orang untuk Berangkat Bareng'
+                          : 'Kurangi penumpang'
+                      }
                     >
-                      <span className="material-symbols-outlined text-[16px]">remove</span>
+                      <span className="material-symbols-outlined text-[18px]">remove</span>
                     </button>
-                    <span className="font-extrabold text-lg text-ink tabular-nums">
-                      {passengers} Penumpang
-                    </span>
+
+                    <div className="text-center">
+                      <span className="font-extrabold text-xl text-ink tabular-nums block">
+                        {passengers} Penumpang
+                      </span>
+                      <span className="text-[10px] font-medium text-subtle">
+                        {passengers === 1
+                          ? 'Solo Traveler'
+                          : passengers === 2
+                          ? 'Duo Squad (Hemat 5%)'
+                          : passengers <= 4
+                          ? 'Family & Friends (Hemat 10%)'
+                          : 'Rombongan Besar (Hemat 15%)'}
+                      </span>
+                    </div>
+
                     <button
                       type="button"
                       disabled={passengers >= 9}
                       onClick={() => setPassengers(Math.min(9, passengers + 1))}
-                      className="w-8 h-8 rounded-full border border-line bg-raised flex items-center justify-center text-ink disabled:opacity-30 hover:bg-tint transition-colors active:scale-90"
+                      className="w-9 h-9 rounded-full border border-line bg-raised flex items-center justify-center text-ink disabled:opacity-30 disabled:cursor-not-allowed hover:bg-tint transition-all active:scale-90"
+                      title="Tambah penumpang"
                     >
-                      <span className="material-symbols-outlined text-[16px]">add</span>
+                      <span className="material-symbols-outlined text-[18px]">add</span>
                     </button>
+                  </div>
+
+                  {tripType === 'group' && passengers <= 2 && (
+                    <p className="text-[10px] text-amber-600 dark:text-amber-400 mt-1.5 flex items-center gap-1 font-medium">
+                      <span className="material-symbols-outlined text-[13px]">info</span>
+                      Minimal 2 penumpang untuk menikmati harga promo Berangkat Bareng.
+                    </p>
+                  )}
+                </div>
+
+                {/* Quick Presets / Tier Pills */}
+                <div className="mb-3.5">
+                  <span className="text-[10px] uppercase font-bold text-subtle tracking-wider block mb-1.5">
+                    Pilih Cepat Kapasitas
+                  </span>
+                  <div className="grid grid-cols-4 gap-1.5">
+                    {(tripType === 'group' ? [2, 4, 6, 8] : [1, 2, 4, 6]).map((count) => (
+                      <button
+                        key={count}
+                        type="button"
+                        onClick={() => setPassengers(count)}
+                        className={`py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                          passengers === count
+                            ? 'bg-brand text-white shadow-xs'
+                            : 'bg-panel hover:bg-tint text-subtle hover:text-ink border border-line'
+                        }`}
+                      >
+                        {count} Pax
+                      </button>
+                    ))}
                   </div>
                 </div>
 
-                <div>
-                  <span className="text-xs font-bold text-ink block mb-2">Kelas Kabin</span>
+                {/* Cabin Class Selection */}
+                <div className="mb-4 pt-3 border-t border-line/60">
+                  <span className="text-[10px] uppercase font-bold text-subtle tracking-wider block mb-1.5">
+                    Kelas Kabin
+                  </span>
                   <div className="grid grid-cols-2 gap-2">
                     <button
                       type="button"
                       onClick={() => setCabinClass('economy')}
-                      className={`py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+                      className={`py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                         cabinClass === 'economy'
                           ? 'bg-brand text-white shadow-xs'
-                          : 'bg-page text-ink hover:bg-tint'
+                          : 'bg-page text-ink hover:bg-tint border border-line'
                       }`}
                     >
                       Ekonomi
@@ -648,26 +768,35 @@ export default function SearchPanel() {
                     <button
                       type="button"
                       onClick={() => setCabinClass('business')}
-                      className={`py-2 px-3 rounded-lg text-xs font-semibold transition-all ${
+                      className={`py-2 px-3 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
                         cabinClass === 'business'
                           ? 'bg-brand text-white shadow-xs'
-                          : 'bg-page text-ink hover:bg-tint'
+                          : 'bg-page text-ink hover:bg-tint border border-line'
                       }`}
                     >
                       Bisnis
                     </button>
                   </div>
                 </div>
+
+                {/* Popover Close Button */}
+                <button
+                  type="button"
+                  onClick={() => setActiveDropdown(null)}
+                  className="w-full py-2 bg-brand text-white rounded-lg text-xs font-bold hover:bg-brand-hover transition-colors shadow-xs cursor-pointer"
+                >
+                  Selesai
+                </button>
               </div>
             )}
           </div>
 
-          {/* Search Button */}
-          <div className={`${tripType === 'roundtrip' ? 'md:col-span-1' : 'md:col-span-2'} flex items-center justify-end pl-0 md:pl-2 md:border-l md:border-dashed md:border-line h-auto md:h-12 mt-2 md:mt-0`}>
+          {/* Field 5: Tombol Cari Tiket (2 cols on desktop) */}
+          <div className="md:col-span-2 flex items-center justify-end pl-0 md:pl-2 md:border-l md:border-dashed md:border-line h-auto md:h-12 mt-2 md:mt-0">
             <button
               type="button"
               onClick={handleSearch}
-              className="w-full h-12 bg-brand hover:bg-brand-hover text-white text-xs sm:text-sm font-bold rounded-control flex items-center justify-center gap-1.5 shadow-md transition-all duration-200 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-brand-fg"
+              className="w-full h-12 bg-brand hover:bg-brand-hover text-white text-xs sm:text-sm font-bold rounded-control flex items-center justify-center gap-1.5 shadow-md transition-all duration-200 active:scale-[0.98] focus:outline-none focus:ring-2 focus:ring-brand-fg cursor-pointer"
             >
               <span className="material-symbols-outlined text-[18px] sm:text-[20px] select-none">
                 search

@@ -1,4 +1,5 @@
 import DataTablePage, { ColumnDef, FormFieldDef } from '../../components/admin/DataTablePage'
+import { AirlineLogo } from '../../components/common/AirlineLogo'
 
 export interface AirlineItem {
   id: number
@@ -74,13 +75,13 @@ export default function AirlinesPage() {
       sortable: true,
       render: (row) => (
         <div className="flex items-center gap-2.5">
-          <div className="w-8 h-8 rounded-control bg-page border border-line flex items-center justify-center font-bold text-xs text-brand-fg shrink-0 overflow-hidden">
-            {row.logo ? (
-              <img src={row.logo} alt={row.name} className="w-full h-full object-cover" />
-            ) : (
-              <span className="material-symbols-outlined text-[18px]">airlines</span>
-            )}
-          </div>
+          <AirlineLogo
+            code={row.code}
+            name={row.name}
+            logo={row.logo}
+            size="sm"
+            className="shrink-0"
+          />
           <div>
             <div className="font-bold text-xs text-ink">{row.name}</div>
             <div className="text-[10px] text-subtle">Sertifikasi AOC Kemenhub RI</div>

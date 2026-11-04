@@ -1081,16 +1081,25 @@ export default function ScanBoarding() {
 
                   {/* Passenger Information */}
                   <div className="p-4 rounded-xl bg-raised border border-line flex items-center justify-between gap-4">
-                    <div>
-                      <span className="text-[10px] font-bold text-subtle uppercase block">Pemegang Tiket Terdaftar</span>
-                      <h3 className="font-black text-lg text-ink">{scanResult.data?.passenger_name}</h3>
-                      <div className="flex items-center gap-2 mt-0.5 text-xs text-subtle font-mono">
-                        <span>PNR: {scanResult.data?.booking_code}</span>
-                        <span>•</span>
-                        <span>{scanResult.data?.flight_number}</span>
+                    <div className="flex items-center gap-3 min-w-0">
+                      <AirlineLogo
+                        code={scanResult.data?.airline?.code || scanResult.data?.flight_number?.split('-')[0]}
+                        name={scanResult.data?.airline?.name}
+                        logo={scanResult.data?.airline?.logo}
+                        size="md"
+                        className="rounded-lg shadow-2xs shrink-0"
+                      />
+                      <div className="min-w-0">
+                        <span className="text-[10px] font-bold text-subtle uppercase block">Pemegang Tiket Terdaftar</span>
+                        <h3 className="font-black text-lg text-ink truncate">{scanResult.data?.passenger_name}</h3>
+                        <div className="flex items-center gap-2 mt-0.5 text-xs text-subtle font-mono truncate">
+                          <span>PNR: {scanResult.data?.booking_code}</span>
+                          <span>•</span>
+                          <span>{scanResult.data?.airline?.name ? `${scanResult.data.airline.name} ` : ''}{scanResult.data?.flight_number}</span>
+                        </div>
                       </div>
                     </div>
-                    <div className="text-right">
+                    <div className="text-right shrink-0">
                       <span className="text-[10px] font-bold text-subtle uppercase block">Kursi Asli</span>
                       <span className="text-2xl font-black text-danger font-mono">{scanResult.data?.seat_number}</span>
                     </div>
@@ -1149,9 +1158,18 @@ export default function ScanBoarding() {
                     <span className="font-bold text-amber-700 dark:text-amber-400 text-sm">
                       Tujuan Asli Penumpang:
                     </span>
-                    <div className="flex items-center justify-between text-ink text-sm font-bold">
-                      <span>{scanResult.data?.airline?.name} • Penerbangan {scanResult.data?.flight_number}</span>
-                      <span className="font-mono text-amber-600 dark:text-amber-400">Kursi {scanResult.data?.seat_number}</span>
+                    <div className="flex items-center justify-between text-ink text-sm font-bold gap-3">
+                      <div className="flex items-center gap-2 min-w-0">
+                        <AirlineLogo
+                          code={scanResult.data?.airline?.code || scanResult.data?.flight_number?.split('-')[0]}
+                          name={scanResult.data?.airline?.name}
+                          logo={scanResult.data?.airline?.logo}
+                          size="sm"
+                          className="rounded shrink-0"
+                        />
+                        <span className="truncate">{scanResult.data?.airline?.name} • Penerbangan {scanResult.data?.flight_number}</span>
+                      </div>
+                      <span className="font-mono text-amber-600 dark:text-amber-400 shrink-0">Kursi {scanResult.data?.seat_number}</span>
                     </div>
                     <div className="text-xs text-subtle mt-1">
                       Arahkan penumpang ke gerbang keberangkatan maskapai yang sesuai.
@@ -1264,9 +1282,17 @@ export default function ScanBoarding() {
                           <span className="font-bold text-ink block truncate">
                             {item.name}
                           </span>
-                          <span className="text-[11px] text-subtle font-mono truncate block">
-                            {item.flightNumber} • Kursi {item.seat} • PNR: {item.pnr}
-                          </span>
+                          <div className="flex items-center gap-1.5 mt-0.5">
+                            <AirlineLogo
+                              code={item.airlineCode || item.flightNumber.split('-')[0]}
+                              name={item.airlineName}
+                              size="xs"
+                              className="rounded shrink-0"
+                            />
+                            <span className="text-[11px] text-subtle font-mono truncate">
+                              {item.airlineName ? `${item.airlineName} ` : ''}{item.flightNumber} • Kursi {item.seat} • PNR: {item.pnr}
+                            </span>
+                          </div>
                         </div>
                       </div>
 

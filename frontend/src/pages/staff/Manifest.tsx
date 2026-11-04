@@ -4,6 +4,7 @@ import { api } from '../../lib/api'
 import StaffLayout from '../../components/layout/StaffLayout'
 import { useStaffStore } from '../../store/staffStore'
 import { broadcastStaffEvent, subscribeStaffEvents } from '../../lib/staffEvents'
+import { AirlineLogo } from '../../components/common/AirlineLogo'
 
 interface ManifestPassenger {
   id: number
@@ -538,14 +539,13 @@ export default function FlightManifest() {
             {/* Carrier & Route Identity */}
             <div className="flex flex-col sm:flex-row sm:items-center gap-4">
               {/* Carrier Logo / Tail Badge */}
-              <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-xl bg-brand/10 border border-brand/20 flex flex-col items-center justify-center shrink-0 shadow-xs">
-                <span className="material-symbols-outlined text-brand text-2xl">
-                  airlines
-                </span>
-                <span className="text-[10px] font-black tracking-wider text-brand font-mono">
-                  {flight?.airline?.code || 'GA'}
-                </span>
-              </div>
+              <AirlineLogo
+                code={flight?.airline?.code || flight?.flight_number?.split('-')[0]}
+                name={flight?.airline?.name}
+                logo={flight?.airline?.logo}
+                size="xl"
+                className="rounded-xl shadow-xs shrink-0"
+              />
 
               <div className="flex flex-col gap-1">
                 <div className="flex flex-wrap items-center gap-2">
@@ -1452,7 +1452,14 @@ function StandardManifestDocument({
       {/* ── Document Header & Airline Authority Banner ── */}
       <div className="border-b-2 border-black pb-2.5 flex items-start justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
+            <AirlineLogo
+              code={carrierCode}
+              name={carrierName}
+              logo={flight?.airline?.logo}
+              size="sm"
+              className="border border-black shadow-none print:inline-flex"
+            />
             <span className="font-black text-xl tracking-tight uppercase">
               {carrierName}
             </span>

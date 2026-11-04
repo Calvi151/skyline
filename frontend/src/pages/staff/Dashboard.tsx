@@ -4,6 +4,7 @@ import { api } from '../../lib/api'
 import StaffLayout from '../../components/layout/StaffLayout'
 import { useStaffStore } from '../../store/staffStore'
 import { subscribeStaffEvents } from '../../lib/staffEvents'
+import { AirlineLogo } from '../../components/common/AirlineLogo'
 
 interface FlightItem {
   id: number
@@ -400,12 +401,6 @@ export default function StaffDashboard() {
               const arrFormatted = formatTimeStr(flight.arrival_time)
               const duration = calculateDuration(flight.departure_time, flight.arrival_time)
 
-              const airlineInitials =
-                flight.airline?.code ||
-                flight.flight_number.split('-')[0] ||
-                flight.airline?.name.slice(0, 2).toUpperCase() ||
-                'SB'
-
               // Status badges logic
               let statusBadge = (
                 <div className="px-3 py-1.5 rounded-full bg-success/10 text-success flex items-center gap-1 text-[11px] font-semibold uppercase tracking-wider">
@@ -453,9 +448,13 @@ export default function StaffDashboard() {
                   <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4">
                     {/* Flight Identification */}
                     <div className="flex items-start md:items-center gap-3.5 min-w-[240px]">
-                      <div className="w-12 h-12 rounded-xl bg-brand text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
-                        {airlineInitials}
-                      </div>
+                      <AirlineLogo
+                        code={flight.airline?.code || flight.flight_number.split('-')[0]}
+                        name={flight.airline?.name}
+                        logo={flight.airline?.logo}
+                        size="lg"
+                        className="rounded-xl shadow-xs"
+                      />
                       <div>
                         <div className="flex items-center gap-2 flex-wrap">
                           <span className="font-bold text-base text-ink tracking-tight">

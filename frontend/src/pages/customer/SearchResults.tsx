@@ -129,12 +129,19 @@ export default function SearchResults() {
   const [editTripType, setEditTripType] = useState<'oneway' | 'roundtrip' | 'group'>(
     isRoundtrip ? 'roundtrip' : isGroup ? 'group' : 'oneway'
   )
+  const [isEditGroupRoundtrip, setIsEditGroupRoundtrip] = useState(isRoundtrip && isGroup)
   const [editOriginAirport, setEditOriginAirport] = useState<AirportItem>(resolvedOriginAirport)
   const [editDestAirport, setEditDestAirport] = useState<AirportItem>(resolvedDestAirport)
   const [editDate, setEditDate] = useState(date)
   const [editReturnDate, setEditReturnDate] = useState(returnDate || date)
   const [editPassengers, setEditPassengers] = useState(passengers)
   const [editClass, setEditClass] = useState(cabinClass)
+
+  const isEditRoundtripActive =
+    editTripType === 'roundtrip' || (editTripType === 'group' && isEditGroupRoundtrip)
+
+  const editGroupDiscount =
+    editPassengers >= 5 ? 15 : editPassengers >= 3 ? 10 : editPassengers >= 2 ? 5 : 0
 
   // Autocomplete dropdown state for search edit
   const [activeAirportDropdown, setActiveAirportDropdown] = useState<'origin' | 'destination' | null>(null)
@@ -153,6 +160,7 @@ export default function SearchResults() {
     setEditPassengers(passengers)
     setEditClass(cabinClass)
     setEditTripType(isRoundtrip ? 'roundtrip' : isGroup ? 'group' : 'oneway')
+    setIsEditGroupRoundtrip(isRoundtrip && isGroup)
   }, [resolvedOriginAirport, resolvedDestAirport, date, returnDate, passengers, cabinClass, isRoundtrip, isGroup])
 
   // Close dropdown on click outside
@@ -425,19 +433,21 @@ export default function SearchResults() {
     e.preventDefault()
     setIsEditSearchOpen(false)
     setActiveAirportDropdown(null)
+    const paxCount =
+      editTripType === 'group' ? Math.max(2, editPassengers) : Math.max(1, editPassengers)
     const nextParams = new URLSearchParams({
       origin: editOriginAirport.code,
       destination: editDestAirport.code,
       date: editDate,
-      passengers: String(editPassengers),
+      passengers: String(paxCount),
       class: editClass,
       sort,
     })
-    if (editTripType === 'roundtrip') {
+    if (isEditRoundtripActive) {
       nextParams.set('trip', 'roundtrip')
       nextParams.set('returnDate', editReturnDate || editDate)
     }
-    if (editTripType === 'group' || editPassengers >= 2) {
+    if (editTripType === 'group' || paxCount >= 2) {
       nextParams.set('group', 'true')
     }
     setSearchParams(nextParams)
@@ -696,7 +706,7 @@ export default function SearchResults() {
               <form onSubmit={handleApplySearchEdit} className="max-w-content mx-auto space-y-4">
                 {/* Trip Type Selector */}
                 <div className="flex flex-wrap items-center justify-between gap-3 pb-3 border-b border-line/60">
-                  <div className="flex items-center gap-1.5 sm:gap-2">
+                  <div className="flex items-center gap-1.5 sm:gap-2 flex-wrap">
                     <button
                       type="button"
                       onClick={() => setEditTripType('oneway')}
@@ -726,7 +736,7 @@ export default function SearchResults() {
                       type="button"
                       onClick={() => {
                         setEditTripType('group')
-                        if (editPassengers < 2) setEditPassengers(2)
+                        if (editPassengers < 2) setEditPassengers(4)
                       }}
                       className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all inline-flex items-center gap-1.5 cursor-pointer ${
                         editTripType === 'group'
@@ -737,14 +747,33 @@ export default function SearchResults() {
                       <span className="material-symbols-outlined text-[14px]">group</span>
                       <span>Berangkat Bareng</span>
                       <span className="text-[10px] px-1.5 py-0.2 rounded-full font-bold bg-amber-500/20 text-amber-700 dark:text-amber-400">
-                        Diskon s/d 15%
+                        Min. 2 Pax • s/d 15%
                       </span>
                     </button>
                   </div>
 
-                  <span className="text-xs text-subtle font-medium">
-                    Ketik nama kota (Bali, Jakarta, Jogja, Surabaya) untuk mencari bandara
-                  </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {editTripType === 'group' && (
+                      <label className="flex items-center gap-1.5 text-xs font-semibold text-ink cursor-pointer bg-raised hover:bg-tint px-2.5 py-1 rounded-full border border-line transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={isEditGroupRoundtrip}
+                          onChange={(e) => setIsEditGroupRoundtrip(e.target.checked)}
+                          className="rounded text-brand w-3.5 h-3.5 cursor-pointer"
+                        />
+                        <span>Termasuk Tiket Pulang (PP)</span>
+                        <span className="text-[10px] bg-emerald-500/20 text-emerald-700 dark:text-emerald-400 font-bold px-1.5 py-0.2 rounded">
+                          +10% PP
+                        </span>
+                      </label>
+                    )}
+
+                    {editGroupDiscount > 0 && (
+                      <span className="text-[11px] font-bold text-emerald-700 dark:text-emerald-400 bg-emerald-500/15 border border-emerald-500/30 px-2 py-0.5 rounded-full">
+                        Diskon {editGroupDiscount}% Aktif ({editPassengers} Pax)
+                      </span>
+                    )}
+                  </div>
                 </div>
 
                 {/* Grid Inputs */}
@@ -937,11 +966,16 @@ export default function SearchResults() {
                       />
                     </div>
 
-                    {editTripType === 'roundtrip' ? (
+                    {isEditRoundtripActive ? (
                       <div>
-                        <label className="text-[10px] font-bold text-subtle uppercase block mb-1">
-                          Pulang
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 uppercase">
+                            Pulang (PP)
+                          </label>
+                          <span className="text-[9px] bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 font-bold px-1 rounded">
+                            -10%
+                          </span>
+                        </div>
                         <input
                           type="date"
                           required
@@ -953,16 +987,26 @@ export default function SearchResults() {
                       </div>
                     ) : (
                       <div>
-                        <label className="text-[10px] font-bold text-subtle uppercase block mb-1">
-                          Penumpang & Kelas
-                        </label>
+                        <div className="flex items-center justify-between mb-1">
+                          <label className="text-[10px] font-bold text-subtle uppercase">
+                            Penumpang & Kelas
+                          </label>
+                          {editGroupDiscount > 0 && (
+                            <span className="text-[9px] font-bold text-emerald-600 bg-emerald-500/15 px-1 rounded">
+                              -{editGroupDiscount}%
+                            </span>
+                          )}
+                        </div>
                         <div className="grid grid-cols-2 gap-1">
                           <select
                             value={editPassengers}
                             onChange={(e) => setEditPassengers(Number(e.target.value))}
                             className="h-14 px-1 bg-raised border border-line rounded-control text-ink text-xs font-semibold focus:outline-none"
                           >
-                            {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+                            {(editTripType === 'group'
+                              ? [2, 3, 4, 5, 6, 7, 8, 9]
+                              : [1, 2, 3, 4, 5, 6, 7, 8, 9]
+                            ).map((n) => (
                               <option key={n} value={n}>
                                 {n} pax
                               </option>
@@ -993,17 +1037,20 @@ export default function SearchResults() {
                 </div>
 
                 {/* If Roundtrip: Passenger/Class selector line below */}
-                {editTripType === 'roundtrip' && (
-                  <div className="flex items-center gap-3 pt-1">
+                {isEditRoundtripActive && (
+                  <div className="flex items-center gap-3 pt-1 flex-wrap">
                     <span className="text-xs font-bold text-subtle">Penumpang & Kelas:</span>
                     <select
                       value={editPassengers}
                       onChange={(e) => setEditPassengers(Number(e.target.value))}
                       className="h-9 px-2.5 bg-raised border border-line rounded-control text-ink text-xs font-semibold focus:outline-none"
                     >
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9].map((n) => (
+                      {(editTripType === 'group'
+                        ? [2, 3, 4, 5, 6, 7, 8, 9]
+                        : [1, 2, 3, 4, 5, 6, 7, 8, 9]
+                      ).map((n) => (
                         <option key={n} value={n}>
-                          {n} Penumpang
+                          {n} Penumpang {n >= 2 ? `(Diskon ${n >= 5 ? 15 : n >= 3 ? 10 : 5}%)` : ''}
                         </option>
                       ))}
                     </select>
@@ -1015,6 +1062,11 @@ export default function SearchResults() {
                       <option value="economy">Kelas Ekonomi</option>
                       <option value="business">Kelas Bisnis</option>
                     </select>
+                    {editTripType === 'group' && (
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-semibold bg-amber-500/10 px-2 py-1 rounded">
+                        Minimal 2 penumpang untuk Berangkat Bareng
+                      </span>
+                    )}
                   </div>
                 )}
               </form>
