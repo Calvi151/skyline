@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
 import StaffLayout from '../../components/layout/StaffLayout'
-import { useStaffStore } from '../../store/staffStore'
+import { useStaffStore, AVAILABLE_GATES, getGateForFlight } from '../../store/staffStore'
 import { subscribeStaffEvents } from '../../lib/staffEvents'
 import { AirlineLogo } from '../../components/common/AirlineLogo'
 
@@ -26,7 +26,6 @@ interface FlightItem {
   total_capacity: number
 }
 
-const AVAILABLE_GATES = ['Gate 14', 'Gate 22', 'Gate 12B', 'Gate 18', 'Gate 7', 'Gate 11']
 
 export default function StaffDashboard() {
   const navigate = useNavigate()
@@ -130,11 +129,6 @@ export default function StaffDashboard() {
     const h = Math.floor(mins / 60)
     const m = mins % 60
     return `${h}j ${m > 0 ? `${m}m` : ''}`
-  }
-
-  // Derive pseudo gates deterministically from id (jika backend belum memberikan)
-  const getGateForFlight = (flightId: number) => {
-    return AVAILABLE_GATES[(flightId - 1) % AVAILABLE_GATES.length]
   }
 
   // Categorize flights (departing vs completed)

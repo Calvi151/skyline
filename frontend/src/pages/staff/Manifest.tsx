@@ -2,9 +2,10 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
 import StaffLayout from '../../components/layout/StaffLayout'
-import { useStaffStore } from '../../store/staffStore'
+import { useStaffStore, AVAILABLE_GATES, getGateForFlight } from '../../store/staffStore'
 import { broadcastStaffEvent, subscribeStaffEvents } from '../../lib/staffEvents'
 import { AirlineLogo } from '../../components/common/AirlineLogo'
+import { FlightSearchCombobox } from '../../components/common/FlightSearchCombobox'
 
 interface ManifestPassenger {
   id: number
@@ -78,6 +79,7 @@ export default function FlightManifest() {
   const {
     selectedFlightId,
     setSelectedFlightId,
+    selectedGate,
     setSelectedGate,
     cachedFlights,
     setCachedFlights,
@@ -85,10 +87,28 @@ export default function FlightManifest() {
 
   // SWR: inisialisasi daftar penerbangan dari memory cache jika tersedia
   const [availableFlights, setAvailableFlights] = useState<any[]>(cachedFlights)
-  const [loadingFlights, setLoadingFlights] = useState(cachedFlights.length === 0)
+  const [, setLoadingFlights] = useState(cachedFlights.length === 0)
+
+  // Filter penerbangan berdasarkan Gerbang Tugas Staf (Gate Assignment)
+  const filteredManifestFlights = useMemo(() => {
+    if (selectedGate === 'all') return availableFlights
+    return availableFlights.filter((f: any) => (f.gate || getGateForFlight(f.id)) === selectedGate)
+  }, [availableFlights, selectedGate])
 
   // Resolusi ID jadwal penerbangan: dari URL atau dari staffStore atau fallback 1
   const flightId = Number(id) || selectedFlightId || 1
+
+  // Auto-sync: jika staf beralih gerbang tugas dan penerbangan saat ini bukan milik gerbang itu
+  useEffect(() => {
+    if (selectedGate !== 'all' && filteredManifestFlights.length > 0) {
+      const match = filteredManifestFlights.some((f: any) => f.id === flightId)
+      if (!match) {
+        const firstFlight = filteredManifestFlights[0]
+        setSelectedFlightId(firstFlight.id)
+        navigate(`/staff/flights/${firstFlight.id}/manifest`, { replace: true })
+      }
+    }
+  }, [selectedGate, filteredManifestFlights, flightId, navigate, setSelectedFlightId])
 
   const [flight, setFlight] = useState<ManifestFlight | null>(null)
   const [manifestList, setManifestList] = useState<ManifestPassenger[]>([])
@@ -463,37 +483,73 @@ export default function FlightManifest() {
           </div>
         </div>
 
-        {/* ── Flight Selector & Realtime Switcher Toolbar (Anti-Random Manifest) ── */}
+        {/* ── Flight Selector & Realtime Switcher Toolbar (Gate-Centric Assignment) ── */}
         <div className="bg-panel border border-line rounded-ticket p-3.5 sm:p-4 shadow-xs flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <div className="flex items-center gap-3 flex-1 min-w-0">
-            <label htmlFor="manifest-flight-select" className="text-xs font-bold text-ink shrink-0 flex items-center gap-1.5">
-              <span className="material-symbols-outlined text-brand-fg text-[18px]">flight</span>
-              <span>Pilih Manifest Penerbangan:</span>
-            </label>
-            <div className="relative flex-1 max-w-xl">
+          <div className="flex flex-col sm:flex-row sm:items-center gap-3 flex-1 min-w-0">
+            {/* Pos Gerbang Tugas Staf */}
+            <div className="flex items-center gap-2 shrink-0">
+              <label htmlFor="manifest-gate-filter" className="text-xs font-bold text-ink flex items-center gap-1.5">
+                <span className="material-symbols-outlined text-brand-fg text-[18px]">meeting_room</span>
+                <span>Pos Gerbang:</span>
+              </label>
               <select
-                id="manifest-flight-select"
-                disabled={loadingFlights}
-                value={String(flightId)}
+                id="manifest-gate-filter"
+                value={selectedGate}
                 onChange={(e) => {
-                  const newId = Number(e.target.value)
-                  setSelectedFlightId(newId)
-                  navigate(`/staff/flights/${newId}/manifest`)
+                  const newGate = e.target.value
+                  setSelectedGate(newGate)
+                  if (newGate !== 'all') {
+                    const nextFlight = availableFlights.find(
+                      (f: any) => (f.gate || getGateForFlight(f.id)) === newGate
+                    )
+                    if (nextFlight) {
+                      setSelectedFlightId(nextFlight.id)
+                      navigate(`/staff/flights/${nextFlight.id}/manifest`)
+                    }
+                  }
                 }}
-                className="w-full h-10 px-3.5 pr-8 rounded-control bg-raised border border-line text-xs font-bold text-ink focus:outline-none focus:ring-2 focus:ring-brand/20 shadow-xs cursor-pointer truncate"
+                className="h-10 px-3 rounded-control bg-raised border border-line text-xs font-bold text-brand-fg focus:outline-none focus:ring-2 focus:ring-brand/20 cursor-pointer shadow-xs"
               >
-                {availableFlights.map((f: any) => {
-                  const isCancelled = f.status === 'cancelled'
-                  const isDone = f.departure_time && Date.now() - new Date(f.departure_time).getTime() > 3 * 3600 * 1000
-                  const gateLabel = f.gate || 'Gate 14'
-                  return (
-                    <option key={f.id} value={String(f.id)}>
-                      {f.airline?.name || 'Maskapai'} {f.flight_number} • {f.origin?.code} → {f.destination?.code} ({formatTimeStr(f.departure_time)}) • {gateLabel}
-                      {isCancelled ? ' (Gerbang Nonaktif - Dibatalkan)' : isDone ? ' (Gerbang Ditutup - Selesai)' : ' (Aktif)'}
+                <optgroup label="Pintu Gerbang Boarding (Gate Agent)">
+                  {AVAILABLE_GATES.map((g) => (
+                    <option key={g} value={g}>
+                      📍 {g}
                     </option>
-                  )
-                })}
+                  ))}
+                </optgroup>
+                <optgroup label="Pengawasan Terminal">
+                  <option value="all">🌐 Semua Gerbang (Supervisor)</option>
+                </optgroup>
               </select>
+            </div>
+
+            <div className="h-6 w-px bg-line hidden sm:block shrink-0" />
+
+            {/* Searchable Flight Manifest Combobox with instant search bar */}
+            <div className="flex-1 max-w-xl">
+              <FlightSearchCombobox
+                flights={availableFlights}
+                selectedFlightId={flightId}
+                selectedGate={selectedGate}
+                onSelectFlight={(newId) => {
+                  const num = Number(newId)
+                  setSelectedFlightId(num)
+                  navigate(`/staff/flights/${num}/manifest`)
+                }}
+                onSelectGate={(gate) => {
+                  setSelectedGate(gate)
+                  if (gate !== 'all') {
+                    const nextFlight = availableFlights.find(
+                      (f: any) => (f.gate || getGateForFlight(f.id)) === gate
+                    )
+                    if (nextFlight) {
+                      setSelectedFlightId(nextFlight.id)
+                      navigate(`/staff/flights/${nextFlight.id}/manifest`)
+                    }
+                  }
+                }}
+                allowUniversalOption={false}
+              />
             </div>
           </div>
 
@@ -614,7 +670,7 @@ export default function FlightManifest() {
                 onClick={() => setViewMode(viewMode === 'dashboard' ? 'document_preview' : 'dashboard')}
                 className={`inline-flex items-center gap-2 px-3.5 py-2.5 rounded-control border text-xs font-semibold transition-all ${
                   viewMode === 'document_preview'
-                    ? 'bg-ink text-white border-ink'
+                    ? 'bg-ink text-page border-ink'
                     : 'bg-panel border-line text-ink hover:bg-tint'
                 }`}
                 title="Lihat tampilan dokumen A4 sebelum dicetak"
@@ -765,12 +821,18 @@ export default function FlightManifest() {
               onClick={() => setActiveFilter('all')}
               className={`px-3 py-1.5 rounded-full font-semibold transition-all shrink-0 flex items-center gap-1.5 ${
                 activeFilter === 'all'
-                  ? 'bg-ink text-white shadow-xs'
+                  ? 'bg-ink text-page shadow-xs'
                   : 'bg-panel border border-line text-ink hover:bg-tint'
               }`}
             >
               <span>Semua</span>
-              <span className="px-1.5 py-0.2 rounded-full text-[10px] bg-white/20 font-mono">
+              <span
+                className={`px-1.5 py-0.5 rounded-full text-[10px] font-mono ${
+                  activeFilter === 'all'
+                    ? 'bg-page/20 text-page'
+                    : 'bg-black/5 dark:bg-white/10 text-subtle'
+                }`}
+              >
                 {manifestList.length}
               </span>
             </button>

@@ -1,7 +1,7 @@
 import React from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
-import { useStaffStore } from '../../store/staffStore'
+import { useStaffStore, AVAILABLE_GATES } from '../../store/staffStore'
 import ThemeToggle from '../common/ThemeToggle'
 
 interface StaffLayoutProps {
@@ -13,7 +13,7 @@ export default function StaffLayout({ children, activeFlightId }: StaffLayoutPro
   const location = useLocation()
   const navigate = useNavigate()
   const { user, logout } = useAuthStore()
-  const { selectedFlightId, selectedGate } = useStaffStore()
+  const { selectedFlightId, selectedGate, setSelectedGate } = useStaffStore()
 
   const handleLogout = async () => {
     try {
@@ -35,8 +35,6 @@ export default function StaffLayout({ children, activeFlightId }: StaffLayoutPro
 
   const staffName = user?.name || 'Petugas Gate'
   const staffRole = user?.role === 'admin' ? 'Super Admin' : 'Gate Crew'
-
-  const gateDisplay = selectedGate && selectedGate !== 'all' ? selectedGate : 'Gate 14'
 
   return (
     <div className="min-h-screen bg-page text-ink font-sans antialiased flex flex-col justify-between print:min-h-0 print:bg-white print:text-black">
@@ -94,13 +92,30 @@ export default function StaffLayout({ children, activeFlightId }: StaffLayoutPro
 
           {/* Right Operational Controls & Profile */}
           <div className="flex items-center gap-3 sm:gap-4 shrink-0">
-            {/* Live DCS Status */}
-            <div className="hidden lg:flex items-center gap-2 bg-tint/80 border border-line/60 px-3 py-1.5 rounded-full text-xs font-medium text-ink">
-              <span className="relative flex h-2 w-2">
+            {/* Pos Gerbang Penugasan Staf (Gate Assignment Selector) */}
+            <div className="flex items-center gap-1.5 bg-tint/80 border border-line/70 px-2.5 py-1 rounded-full text-xs font-medium text-ink shadow-2xs hover:bg-tint transition-colors">
+              <span className="relative flex h-2 w-2 shrink-0">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75" />
                 <span className="relative inline-flex rounded-full h-2 w-2 bg-success" />
               </span>
-              <span>DCS Realtime ({gateDisplay})</span>
+              <span className="text-[11px] text-subtle font-normal hidden lg:inline">Pos Gerbang:</span>
+              <select
+                value={selectedGate}
+                onChange={(e) => setSelectedGate(e.target.value)}
+                className="bg-transparent border-0 font-bold text-xs text-brand-fg focus:outline-none cursor-pointer pr-1"
+                title="Pilih Gerbang Penugasan Anda"
+              >
+                <optgroup label="Posisi Gerbang Boarding">
+                  {AVAILABLE_GATES.map((g) => (
+                    <option key={g} value={g}>
+                      📍 {g}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Pengawasan Terminal">
+                  <option value="all">🌐 Semua Gerbang (Supervisor)</option>
+                </optgroup>
+              </select>
             </div>
 
             {/* Theme Toggle */}

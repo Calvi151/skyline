@@ -1,5 +1,13 @@
 import { create } from 'zustand'
 
+export const AVAILABLE_GATES = ['Gate 14', 'Gate 22', 'Gate 12B', 'Gate 18', 'Gate 7', 'Gate 11'] as const
+export type GateName = typeof AVAILABLE_GATES[number] | 'all'
+
+export function getGateForFlight(flightId: number, rawGate?: string | null): string {
+  if (rawGate && rawGate.trim()) return rawGate
+  return AVAILABLE_GATES[Math.abs(flightId - 1) % AVAILABLE_GATES.length]
+}
+
 interface StaffState {
   selectedFlightId: number | null
   selectedGate: string
@@ -24,9 +32,9 @@ export const useStaffStore = create<StaffState>((set) => ({
 
   selectedGate: (() => {
     try {
-      return localStorage.getItem(STORAGE_GATE_KEY) || 'all'
+      return localStorage.getItem(STORAGE_GATE_KEY) || 'Gate 14'
     } catch {
-      return 'all'
+      return 'Gate 14'
     }
   })(),
 
