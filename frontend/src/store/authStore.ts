@@ -7,6 +7,7 @@ export interface AuthUser {
   email: string
   phone?: string | null
   role: 'admin' | 'staff' | 'customer'
+  assigned_gate?: string | null
   email_verified: boolean
   has_password?: boolean
   has_google?: boolean

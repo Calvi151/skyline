@@ -43,6 +43,7 @@ export const users = pgTable('users', {
   isActive: boolean('is_active').default(true),
   emailVerifiedAt: timestamp('email_verified_at'),
   createdAt: timestamp('created_at').defaultNow(),
+  assignedGate: varchar('assigned_gate', { length: 50 }).default('Gate 14'),
 })
 
 export const emailVerificationTokens = pgTable(

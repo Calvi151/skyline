@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { AirlineLogo } from './AirlineLogo'
 import { AVAILABLE_GATES, getGateForFlight } from '../../store/staffStore'
+import { useAuthStore } from '../../store/authStore'
 
 export interface ComboboxFlightItem {
   id: number
@@ -32,6 +33,7 @@ export function FlightSearchCombobox({
   allowUniversalOption = false,
   className = '',
 }: FlightSearchComboboxProps) {
+  const { user } = useAuthStore()
   const [isOpen, setIsOpen] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [gateFilter, setGateFilter] = useState<string>(selectedGate)
@@ -272,23 +274,32 @@ export function FlightSearchCombobox({
             >
               Semua Gerbang
             </button>
-            {AVAILABLE_GATES.map((g) => (
-              <button
-                key={g}
-                type="button"
-                onClick={() => {
-                  setGateFilter(g)
-                  if (onSelectGate) onSelectGate(g)
-                }}
-                className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 transition-colors ${
-                  gateFilter === g
-                    ? 'bg-brand text-white shadow-xs'
-                    : 'bg-panel border border-line text-subtle hover:text-ink'
-                }`}
-              >
-                📍 {g}
-              </button>
-            ))}
+            {AVAILABLE_GATES.map((g) => {
+              const isAssigned = user?.role === 'staff' && user?.assigned_gate === g
+              return (
+                <button
+                  key={g}
+                  type="button"
+                  onClick={() => {
+                    setGateFilter(g)
+                    if (onSelectGate) onSelectGate(g)
+                  }}
+                  className={`px-2.5 py-1 rounded-full text-[11px] font-semibold shrink-0 transition-colors flex items-center gap-1.5 ${
+                    gateFilter === g
+                      ? 'bg-brand text-white shadow-xs'
+                      : 'bg-panel border border-line text-subtle hover:text-ink'
+                  }`}
+                  title={isAssigned ? 'Pos Gerbang Resmi Penugasan Anda' : undefined}
+                >
+                  <span>📍 {g}</span>
+                  {isAssigned && (
+                    <span className="text-[9px] px-1 py-0.2 rounded bg-amber-400 text-amber-950 font-black tracking-wider uppercase">
+                      Tugas
+                    </span>
+                  )}
+                </button>
+              )
+            })}
           </div>
 
           {/* List Hasil Pencarian */}

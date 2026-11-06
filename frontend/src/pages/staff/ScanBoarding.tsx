@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useMemo } from 'react'
 import { useSearchParams, Link } from 'react-router-dom'
 import { api } from '../../lib/api'
 import StaffLayout from '../../components/layout/StaffLayout'
+import { useAuthStore } from '../../store/authStore'
 import { useStaffStore, AVAILABLE_GATES, getGateForFlight } from '../../store/staffStore'
 import { broadcastStaffEvent, subscribeStaffEvents } from '../../lib/staffEvents'
 import { gateAudio } from '../../lib/audioFeedback'
@@ -64,6 +65,7 @@ const SEAT_COLS_LEFT = ['A', 'B', 'C']
 const SEAT_COLS_RIGHT = ['D', 'E', 'F']
 
 export default function ScanBoarding() {
+  const { user } = useAuthStore()
   const [searchParams, setSearchParams] = useSearchParams()
   const flightIdParam = searchParams.get('flightId')
   const {
@@ -591,7 +593,7 @@ export default function ScanBoarding() {
                 <optgroup label="Gerbang Tugas Staf (Gate Agent)">
                   {AVAILABLE_GATES.map((g) => (
                     <option key={g} value={g}>
-                      📍 {g}
+                      📍 {g} {user?.assigned_gate === g ? ' ★ (Tugas Anda)' : ''}
                     </option>
                   ))}
                 </optgroup>

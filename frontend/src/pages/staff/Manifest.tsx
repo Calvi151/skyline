@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, Link, useNavigate } from 'react-router-dom'
 import { api } from '../../lib/api'
 import StaffLayout from '../../components/layout/StaffLayout'
+import { useAuthStore } from '../../store/authStore'
 import { useStaffStore, AVAILABLE_GATES, getGateForFlight } from '../../store/staffStore'
 import { broadcastStaffEvent, subscribeStaffEvents } from '../../lib/staffEvents'
 import { AirlineLogo } from '../../components/common/AirlineLogo'
@@ -74,6 +75,7 @@ interface ManifestSummary {
 type FilterType = 'all' | 'boarded' | 'checked_in' | 'not_checked_in' | 'no_show' | 'business' | 'special'
 
 export default function FlightManifest() {
+  const { user } = useAuthStore()
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const {
@@ -513,7 +515,7 @@ export default function FlightManifest() {
                 <optgroup label="Pintu Gerbang Boarding (Gate Agent)">
                   {AVAILABLE_GATES.map((g) => (
                     <option key={g} value={g}>
-                      📍 {g}
+                      📍 {g} {user?.assigned_gate === g ? ' ★ (Tugas Anda)' : ''}
                     </option>
                   ))}
                 </optgroup>

@@ -225,6 +225,7 @@ authRoute.post('/login', async (c) => {
         email: user.email,
         role: user.role,
         email_verified: Boolean(user.emailVerifiedAt),
+        assigned_gate: user.assignedGate || 'Gate 14',
       },
     },
   })
@@ -611,6 +612,7 @@ authRoute.get('/me', authMiddleware, async (c) => {
       googleId: users.googleId,
       emailVerifiedAt: users.emailVerifiedAt,
       createdAt: users.createdAt,
+      assignedGate: users.assignedGate,
     })
     .from(users)
     .where(eq(users.id, userId))
@@ -644,6 +646,7 @@ authRoute.get('/me', authMiddleware, async (c) => {
       email: user.email,
       phone: user.phone || null,
       role: user.role,
+      assigned_gate: user.assignedGate || 'Gate 14',
       email_verified: Boolean(user.emailVerifiedAt),
       has_password: Boolean(user.password),
       has_google: Boolean(user.googleId),

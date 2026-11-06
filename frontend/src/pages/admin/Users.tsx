@@ -10,6 +10,7 @@ interface UserItem {
   email: string
   phone: string | null
   role: 'admin' | 'staff' | 'customer'
+  assigned_gate?: string | null
   is_active: boolean
   created_at: string
 }
@@ -36,6 +37,7 @@ export default function UsersPage() {
     email: '',
     phone: '',
     role: 'staff' as 'staff' | 'admin',
+    assigned_gate: 'Gate 14',
     password: '',
     sendEmail: true,
   })
@@ -77,6 +79,7 @@ export default function UsersPage() {
       email: '',
       phone: '',
       role: 'staff',
+      assigned_gate: 'Gate 14',
       password: '',
       sendEmail: true,
     })
@@ -104,6 +107,7 @@ export default function UsersPage() {
         phone: formData.phone || undefined,
         password: formData.password,
         role: formData.role,
+        assigned_gate: formData.role === 'staff' ? formData.assigned_gate || 'Gate 14' : null,
       })
 
       if (res.data?.data) {
@@ -387,6 +391,7 @@ export default function UsersPage() {
                   <th className="py-3 px-4">PENGGUNA</th>
                   <th className="py-3 px-4">EMAIL &amp; KONTAK</th>
                   <th className="py-3 px-4">ROLE / PERAN</th>
+                  <th className="py-3 px-4">PENUGASAN GERBANG</th>
                   <th className="py-3 px-4">STATUS</th>
                   <th className="py-3 px-4">TERDAFTAR</th>
                   <th className="py-3 px-4 text-right">AKSI</th>
@@ -395,14 +400,14 @@ export default function UsersPage() {
               <tbody className="divide-y divide-line font-medium">
                 {loading && users.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-16 text-center text-subtle">
+                    <td colSpan={8} className="py-16 text-center text-subtle">
                       <div className="w-8 h-8 border-2 border-brand border-t-transparent rounded-full animate-spin mx-auto mb-2" />
                       Memuat daftar pengguna...
                     </td>
                   </tr>
                 ) : filteredUsers.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-12 text-center text-subtle">
+                    <td colSpan={8} className="py-12 text-center text-subtle">
                       Tidak ada pengguna yang cocok dengan kriteria pencarian.
                     </td>
                   </tr>
@@ -474,6 +479,44 @@ export default function UsersPage() {
                           <span className={`inline-flex items-center px-2.5 py-1 rounded-full text-xs ${roleColor}`}>
                             {roleLabel}
                           </span>
+                        </td>
+
+                        {/* Penugasan Gerbang (Khusus Staf & Admin) */}
+                        <td className="py-3.5 px-4">
+                          {userItem.role === 'staff' ? (
+                            <div className="flex items-center gap-1.5">
+                              <select
+                                value={userItem.assigned_gate || 'Gate 14'}
+                                onChange={async (e) => {
+                                  const newGate = e.target.value
+                                  try {
+                                    await api.put(`/admin/users/${userItem.id}`, { assigned_gate: newGate })
+                                    setUsers((prev) =>
+                                      prev.map((u) => (u.id === userItem.id ? { ...u, assigned_gate: newGate } : u))
+                                    )
+                                    setToastMessage(`Gerbang dinas ${userItem.name} berhasil diubah ke ${newGate}`)
+                                  } catch (err) {
+                                    alert('Gagal mengubah penugasan gerbang staf.')
+                                  }
+                                }}
+                                className="h-8 px-2 py-0.5 rounded-lg bg-panel border border-line text-xs font-bold text-brand-fg focus:outline-none focus:ring-2 focus:ring-brand/20 cursor-pointer shadow-2xs hover:border-brand/40 transition-colors"
+                                title="Ubah Penugasan Gerbang Dinas Staf"
+                              >
+                                <option value="Gate 14">📍 Gate 14</option>
+                                <option value="Gate 22">📍 Gate 22</option>
+                                <option value="Gate 12B">📍 Gate 12B</option>
+                                <option value="Gate 18">📍 Gate 18</option>
+                                <option value="Gate 7">📍 Gate 7</option>
+                                <option value="Gate 11">📍 Gate 11</option>
+                              </select>
+                            </div>
+                          ) : userItem.role === 'admin' ? (
+                            <span className="text-[11px] font-semibold text-subtle bg-raised px-2 py-1 rounded-md border border-line/60">
+                              🌐 Semua Gerbang (Supervisor)
+                            </span>
+                          ) : (
+                            <span className="text-subtle text-xs">-</span>
+                          )}
                         </td>
 
                         {/* Status */}
@@ -690,6 +733,28 @@ export default function UsersPage() {
                     <option value="admin">Admin Sistem (Full Access)</option>
                   </select>
                 </div>
+
+                {/* Field: Penugasan Gerbang Tugas (Khusus Staf) */}
+                {formData.role === 'staff' && (
+                  <div className="flex flex-col gap-1">
+                    <label className="font-semibold text-ink" htmlFor="staff-assigned-gate">
+                      Penugasan Pos Gerbang (Duty Gate Station)
+                    </label>
+                    <select
+                      id="staff-assigned-gate"
+                      value={formData.assigned_gate}
+                      onChange={(e) => setFormData({ ...formData, assigned_gate: e.target.value })}
+                      className="w-full h-11 px-3 rounded-control bg-raised border border-line text-ink text-xs font-semibold focus:bg-panel focus:outline-none focus:border-brand"
+                    >
+                      <option value="Gate 14">📍 Gate 14 (Terminal 3 Domestik)</option>
+                      <option value="Gate 22">📍 Gate 22 (Terminal 3 Domestik)</option>
+                      <option value="Gate 12B">📍 Gate 12B (Terminal 3 Domestik)</option>
+                      <option value="Gate 18">📍 Gate 18 (Terminal 3 Domestik)</option>
+                      <option value="Gate 7">📍 Gate 7 (Terminal 1)</option>
+                      <option value="Gate 11">📍 Gate 11 (Terminal 1)</option>
+                    </select>
+                  </div>
+                )}
 
                 {/* Field: Kata Sandi Sementara */}
                 <div className="flex flex-col gap-1">

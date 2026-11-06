@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { useEffect } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { useAuthStore } from '../../store/authStore'
 import { useStaffStore, AVAILABLE_GATES } from '../../store/staffStore'
@@ -34,7 +34,17 @@ export default function StaffLayout({ children, activeFlightId }: StaffLayoutPro
   const isScanActive = location.pathname.includes('/scan')
 
   const staffName = user?.name || 'Petugas Gate'
-  const staffRole = user?.role === 'admin' ? 'Super Admin' : 'Gate Crew'
+  const staffRole = user?.role === 'admin' ? 'Super Admin' : `Gate Crew · ${user?.assigned_gate || selectedGate}`
+
+  // Auto-sync: Kunci gerbang dinas resmi yang ditentukan Admin untuk akun staf
+  useEffect(() => {
+    if (user?.role === 'staff' && user?.assigned_gate) {
+      const stored = localStorage.getItem('skybook_staff_selected_gate')
+      if (!stored || stored === 'all') {
+        setSelectedGate(user.assigned_gate)
+      }
+    }
+  }, [user?.assigned_gate, user?.role, setSelectedGate])
 
   return (
     <div className="min-h-screen bg-page text-ink font-sans antialiased flex flex-col justify-between print:min-h-0 print:bg-white print:text-black">
@@ -108,7 +118,7 @@ export default function StaffLayout({ children, activeFlightId }: StaffLayoutPro
                 <optgroup label="Posisi Gerbang Boarding">
                   {AVAILABLE_GATES.map((g) => (
                     <option key={g} value={g}>
-                      📍 {g}
+                      📍 {g} {user?.assigned_gate === g ? ' ★ (Tugas Anda)' : ''}
                     </option>
                   ))}
                 </optgroup>

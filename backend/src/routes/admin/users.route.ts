@@ -45,6 +45,7 @@ usersRoute.get('/', async (c) => {
       role: users.role,
       is_active: users.isActive,
       created_at: users.createdAt,
+      assigned_gate: users.assignedGate,
     })
     .from(users)
     .orderBy(desc(users.createdAt))
@@ -65,7 +66,7 @@ usersRoute.get('/', async (c) => {
 // POST /api/admin/users (Create staff)
 usersRoute.post('/', async (c) => {
   const body = await c.req.json().catch(() => ({}))
-  const { name, email, phone, password, role } = body
+  const { name, email, phone, password, role, assigned_gate } = body
 
   if (!name || !email || !password) {
     return c.json(
@@ -109,6 +110,7 @@ usersRoute.post('/', async (c) => {
       phone: phone ? String(phone).trim() : null,
       password: hashedPassword,
       role: userRole,
+      assignedGate: assigned_gate ? String(assigned_gate).trim() : 'Gate 14',
       isActive: true,
       emailVerifiedAt: new Date(), // Staf langsung diverifikasi
     })
@@ -117,6 +119,7 @@ usersRoute.post('/', async (c) => {
       name: users.name,
       email: users.email,
       role: users.role,
+      assigned_gate: users.assignedGate,
     })
 
   return c.json(
@@ -139,7 +142,7 @@ usersRoute.put('/:id', async (c) => {
   }
 
   const body = await c.req.json().catch(() => ({}))
-  const { role, is_active } = body
+  const { role, is_active, assigned_gate } = body
 
   // Check CANNOT_MODIFY_SELF
   if (targetId === currentUserId) {
@@ -177,6 +180,9 @@ usersRoute.put('/:id', async (c) => {
   if (typeof is_active === 'boolean') {
     updateData.isActive = is_active
   }
+  if (assigned_gate && typeof assigned_gate === 'string') {
+    updateData.assignedGate = assigned_gate.trim()
+  }
 
   if (Object.keys(updateData).length === 0) {
     return c.json({ error: true, message: 'Tidak ada perubahan yang dikirim', code: 'NO_CHANGES' }, 400)
@@ -192,6 +198,7 @@ usersRoute.put('/:id', async (c) => {
       email: users.email,
       role: users.role,
       is_active: users.isActive,
+      assigned_gate: users.assignedGate,
     })
 
   return c.json({
